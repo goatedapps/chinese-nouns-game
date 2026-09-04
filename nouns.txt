@@ -1,0 +1,75 @@
+## List 1 — Tools 工具
+
+| English        | 中文  | Hanyu Pinyin |
+| -------------- | --- | ------------ |
+| Crowbar        | 撬棍  | qiào gùn     |
+| Screwdriver    | 螺丝刀 | luó sī dāo   |
+| Hammer         | 锤子  | chuí zi      |
+| Pliers         | 钳子  | qián zi      |
+| Spanner        | 扳手  | bān shǒu     |
+| Saw            | 锯子  | jù zi        |
+| Electric drill | 电钻  | diàn zuàn    |
+| Nail           | 钉子  | dīng zi      |
+| Screw          | 螺丝  | luó sī       |
+| Measuring tape | 卷尺  | juǎn chǐ     |
+
+## List 2 — In the Kitchen 厨房用具
+
+| English          | 中文  | Hanyu Pinyin   |
+| ---------------- | --- | -------------- |
+| Wok              | 炒锅  | chǎo guō       |
+| Spatula / turner | 锅铲  | guō chǎn       |
+| Soup ladle       | 汤勺  | tāng sháo      |
+| Steamer basket   | 蒸笼  | zhēng lóng     |
+| Chopping board   | 砧板  | zhēn bǎn       |
+| Strainer / sieve | 滤网  | lǜ wǎng        |
+| Rice cooker      | 电饭锅 | diàn fàn guō   |
+| Kettle           | 水壶  | shuǐ hú        |
+| Rolling pin      | 擀面杖 | gǎn miàn zhàng |
+| Tongs            | 夹子  | jiā zi         |
+
+
+## List 3 — Furniture 家具
+
+| English | 中文 | Hanyu Pinyin |
+|---|---|---|
+| Wardrobe | 衣柜 | yī guì |
+| Drawer | 抽屉 | chōu ti |
+| Shelf / rack | 架子 | jià zi |
+| Stool | 凳子 | dèng zi |
+| Sofa | 沙发 | shā fā |
+| Mattress | 床垫 | chuáng diàn |
+| Bedside table | 床头柜 | chuáng tóu guì |
+| Curtain | 窗帘 | chuāng lián |
+| Carpet / rug | 地毯 | dì tǎn |
+| Cushion | 靠垫 | kào diàn |
+
+## List 4 — Bathroom 浴室
+
+| English | 中文 | Hanyu Pinyin |
+|---|---|---|
+| Tap / faucet | 水龙头 | shuǐ lóng tóu |
+| Shower head | 花洒 | huā sǎ |
+| Toilet bowl | 马桶 | mǎ tǒng |
+| Wash basin | 面盆 | miàn pén |
+| Towel rack | 毛巾架 | máo jīn jià |
+| Mirror | 镜子 | jìng zi |
+| Drain hole | 排水口 | pái shuǐ kǒu |
+| Toilet brush | 马桶刷 | mǎ tǒng shuā |
+| Bathtub | 浴缸 | yù gāng |
+| Floor mat | 地垫 | dì diàn |
+
+## List 5 — Cleaning 清洁用品
+
+| English | 中文 | Hanyu Pinyin |
+|---|---|---|
+| Broom | 扫把 | sǎo bǎ |
+| Dustpan | 簸箕 | bò ji |
+| Mop | 拖把 | tuō bǎ |
+| Pail / bucket | 水桶 | shuǐ tǒng |
+| Rag / wiping cloth | 抹布 | mā bù |
+| Vacuum cleaner | 吸尘器 | xī chén qì |
+| Dish detergent | 洗洁精 | xǐ jié jīng |
+| Rubbish bin | 垃圾桶 | lā jī tǒng |
+| Sponge | 海绵 | hǎi mián |
+| Feather duster | 鸡毛掸子 | jī máo dǎn zi |
