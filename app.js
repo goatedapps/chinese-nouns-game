@@ -235,7 +235,7 @@ function renderSetup() {
 
   // players count
   const stepper = el(`
-    <div>
+    <div style="text-align:center">
       <span class="field-label">👥 How many players?</span>
       <div class="stepper">
         <button class="btn btn-step" id="dec-player" type="button">−</button>
@@ -329,7 +329,11 @@ function renderSetup() {
   const totalTurns = Math.floor(selectedCount / numPlayers) * numPlayers;
 
   if (totalTurns === 0) {
-    panel.appendChild(el(`<div class="setup-error">Pick at least ${numPlayers} noun(s) across your selected lists so every player gets a turn.</div>`));
+    const errorText =
+      selectedCount === 0
+        ? "Pick at least 1 list below so every player gets a turn."
+        : `Pick at least ${numPlayers} noun(s) across your selected lists so every player gets a turn.`;
+    panel.appendChild(el(`<div class="setup-error">${errorText}</div>`));
   } else {
     panel.appendChild(el(`<p class="answer-hint">🎲 ${totalTurns} turns total — ${totalTurns / numPlayers} per player.</p>`));
   }
@@ -873,6 +877,7 @@ function beginTabooGame() {
     pool,
     turnIndex: 0,
     phase: "reveal", // "reveal" | "describing"
+    wordShown: false,
     timeUp: false,
     timeLeft: state.describeSeconds,
     timerId: null,
@@ -923,6 +928,7 @@ function awardTabooPoint(guesserIndex) {
   }
 
   t.phase = "reveal";
+  t.wordShown = false;
   t.timeUp = false;
   t.timeLeft = state.describeSeconds;
   render();
@@ -951,24 +957,40 @@ function renderTaboo() {
       </div>
     `));
 
-    const card = el(`
-      <div class="taboo-reveal">
-        <p class="taboo-warning">🙈 Everyone else, look away — only ${speaker.name} should see this!</p>
-        <div class="taboo-word-img"><img src="${noun.image}" alt="" draggable="false"></div>
-        <div class="cn">${noun.chinese}</div>
-        <div class="py">${noun.pinyin}</div>
-        <div class="en">${noun.english}</div>
+    const scene = el(`
+      <div class="flip-scene">
+        <div class="flip-card ${t.wordShown ? "flipped" : ""}">
+          <div class="flip-face flip-front taboo-hidden-face">
+            <p class="taboo-warning">🙈 Everyone else, look away — only ${speaker.name} should see this!</p>
+            <span class="taboo-tap-hint">👀 Tap to reveal your word</span>
+          </div>
+          <div class="flip-face flip-back">
+            <div class="taboo-word-img"><img src="${noun.image}" alt="" draggable="false"></div>
+            <div class="cn">${noun.chinese}</div>
+            <div class="py">${noun.pinyin}</div>
+            <div class="en">${noun.english}</div>
+          </div>
+        </div>
       </div>
     `);
-    const img = card.querySelector("img");
+    const img = scene.querySelector("img");
     img.onerror = () => (img.closest(".taboo-word-img").style.display = "none");
-    wrap.appendChild(card);
+    if (!t.wordShown) {
+      scene.querySelector(".flip-card").onclick = () => {
+        t.wordShown = true;
+        render();
+      };
+    }
+    wrap.appendChild(scene);
 
-    wrap.appendChild(el(`<p class="answer-hint">Describe it in Chinese without saying the word itself. Everyone else: guess out loud!</p>`));
-
-    const startBtn = el(`<button class="btn btn-primary btn-lg">Got it — hide &amp; start ${state.describeSeconds}s ▶</button>`);
-    startBtn.onclick = () => startDescribing();
-    wrap.appendChild(startBtn);
+    if (t.wordShown) {
+      wrap.appendChild(el(`<p class="answer-hint">Describe it in Chinese without saying the word itself. Everyone else: guess out loud!</p>`));
+      const startBtn = el(`<button class="btn btn-primary btn-lg">Got it — hide &amp; start ${state.describeSeconds}s ▶</button>`);
+      startBtn.onclick = () => startDescribing();
+      wrap.appendChild(startBtn);
+    } else {
+      wrap.appendChild(el(`<p class="answer-hint">${speaker.name}, tap the card once everyone else has looked away.</p>`));
+    }
   } else {
     wrap.appendChild(el(`
       <div class="play-header">
