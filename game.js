@@ -1,9 +1,10 @@
-const { randomInt } = require("node:crypto");
+const { randomInt, randomUUID } = require("node:crypto");
 
 const MIN_PLAYERS = 3;
 const MAX_PLAYERS = 8;
 const DEFAULT_SETTINGS = { studySeconds: 30, answerSeconds: 5, describeSeconds: 20 };
 const TIMER_LIMITS = { studySeconds: [10, 90], answerSeconds: [3, 15], describeSeconds: [10, 45] };
+const ROUND_TYPES = ["picture", "memory", "taboo", "listen"];
 
 class GameError extends Error {}
 
@@ -35,8 +36,7 @@ function changePhase(room, phase, duration = 0) {
   room.deadline = duration ? Date.now() + duration : null;
 }
 
-function countdown(room, next) {
-  room.next = next;
+function countdown(room) {
   changePhase(room, "countdown", 3000);
 }
 
@@ -57,8 +57,10 @@ function start(room, lists, settings) {
   room.settings = { listIds, ...timers };
   room.players.forEach((player) => { player.score = 0; });
   room.selected = selected;
-  room.pool = turnPool(selected, room.players.length);
-  const studyOrder = room.pool.slice().sort((a, b) => a.order - b.order);
+  room.rounds = shuffled(ROUND_TYPES).slice(0, 3);
+  room.roundIndex = 0;
+  room.studyPool = turnPool(selected, room.players.length);
+  const studyOrder = room.studyPool.slice().sort((a, b) => a.order - b.order);
   room.pages = [];
   for (let i = 0; i < studyOrder.length; i += 10) room.pages.push(studyOrder.slice(i, i + 10));
   room.page = 0;
@@ -77,15 +79,60 @@ function beginMemory(room) {
   changePhase(room, "memory");
 }
 
+function finishRound(room) {
+  changePhase(room, room.roundIndex + 1 === room.rounds.length ? "results" : "round-tally");
+}
+
+function beginRound(room) {
+  room.turn = 0;
+  switch (room.rounds[room.roundIndex]) {
+    case "picture":
+      room.pool = shuffled(room.studyPool);
+      changePhase(room, "picture", room.settings.answerSeconds * 1000);
+      break;
+    case "memory":
+      beginMemory(room);
+      break;
+    case "taboo":
+      room.pool = turnPool(room.selected, room.players.length);
+      changePhase(room, "taboo-ready");
+      break;
+    case "listen":
+      room.listenPool = shuffled(room.studyPool).slice(0, 8);
+      beginListenQuestion(room);
+      break;
+  }
+}
+
+function beginListenQuestion(room) {
+  const noun = room.listenPool[room.turn];
+  const alternatives = shuffled(room.studyPool.filter((item) => item !== noun));
+  const sameList = alternatives.filter((item) => item.listId === noun.listId);
+  const otherLists = alternatives.filter((item) => item.listId !== noun.listId);
+  const choices = shuffled([noun, ...sameList.concat(otherLists).slice(0, 3)]);
+  room.listening = { id: randomUUID(), noun, choices, answers: new Map() };
+  changePhase(room, "listen-question", 12000);
+}
+
+function revealListenAnswer(room) {
+  const { noun, choices, answers } = room.listening;
+  const correctIndex = choices.indexOf(noun);
+  for (const player of room.players) {
+    if (answers.get(player.id) === correctIndex) player.score++;
+  }
+  changePhase(room, "listen-answer", 3200);
+}
+
 function nextPicture(room) {
   room.turn++;
-  if (room.turn === room.pool.length) changePhase(room, "picture-tally");
+  if (room.turn === room.pool.length) finishRound(room);
   else changePhase(room, "picture", room.settings.answerSeconds * 1000);
 }
 
 function nextTaboo(room) {
   room.turn++;
-  changePhase(room, room.turn === room.pool.length ? "results" : "taboo-ready");
+  if (room.turn === room.pool.length) finishRound(room);
+  else changePhase(room, "taboo-ready");
 }
 
 function elapse(room) {
@@ -94,20 +141,10 @@ function elapse(room) {
       if (room.page + 1 < room.pages.length) {
         room.page++;
         changePhase(room, "study", room.settings.studySeconds * 1000);
-      } else countdown(room, "picture");
+      } else countdown(room);
       break;
     case "countdown":
-      if (room.next === "picture") {
-        room.pool = shuffled(room.pool);
-        room.turn = 0;
-        changePhase(room, "picture", room.settings.answerSeconds * 1000);
-      } else if (room.next === "memory") {
-        beginMemory(room);
-      } else {
-        room.pool = turnPool(room.selected, room.players.length);
-        room.turn = 0;
-        changePhase(room, "taboo-ready");
-      }
+      beginRound(room);
       break;
     case "picture":
       changePhase(room, "picture-answer");
@@ -116,6 +153,17 @@ function elapse(room) {
       room.flipped = [];
       room.turn++;
       changePhase(room, "memory");
+      break;
+    case "memory-complete":
+      finishRound(room);
+      break;
+    case "listen-question":
+      revealListenAnswer(room);
+      break;
+    case "listen-answer":
+      room.turn++;
+      if (room.turn === room.listenPool.length) finishRound(room);
+      else beginListenQuestion(room);
       break;
     case "taboo-speak":
       changePhase(room, "taboo-answer");
@@ -137,7 +185,7 @@ function play(room, player, action, lists) {
     case "skip-study":
       host();
       phase("study");
-      countdown(room, "picture");
+      countdown(room);
       break;
     case "judge-picture":
       host();
@@ -152,8 +200,9 @@ function play(room, player, action, lists) {
       break;
     case "continue":
       host();
-      phase("picture-tally", "memory-tally");
-      countdown(room, room.phase === "picture-tally" ? "memory" : "taboo");
+      phase("round-tally");
+      room.roundIndex++;
+      countdown(room);
       break;
     case "flip": {
       phase("memory");
@@ -171,7 +220,7 @@ function play(room, player, action, lists) {
         room.matches++;
         player.score++;
         room.feedback = "correct";
-        if (room.matches * 2 === room.cards.length) changePhase(room, "memory-tally");
+        if (room.matches * 2 === room.cards.length) changePhase(room, "memory-complete", 650);
       } else {
         room.feedback = "wrong";
         changePhase(room, "memory-miss", 1600);
@@ -188,16 +237,11 @@ function play(room, player, action, lists) {
     case "reveal-taboo":
       phase("taboo-ready");
       yourTurn();
-      changePhase(room, "taboo-secret");
-      break;
-    case "start-taboo":
-      phase("taboo-secret");
-      yourTurn();
       changePhase(room, "taboo-speak", room.settings.describeSeconds * 1000);
       break;
     case "judge-taboo": {
       host();
-      phase("taboo-ready", "taboo-secret", "taboo-speak", "taboo-answer");
+      phase("taboo-ready", "taboo-speak", "taboo-answer");
       const speaker = activePlayer(room);
       if (action.guesserId !== null) {
         phase("taboo-speak", "taboo-answer");
@@ -205,11 +249,21 @@ function play(room, player, action, lists) {
         requireGame(guesser && guesser !== speaker, "Choose one of the guessers.");
         guesser.score++;
         speaker.score++;
-      } else if (room.phase === "taboo-ready" || room.phase === "taboo-secret") {
+      } else if (room.phase === "taboo-ready") {
         requireGame(!speaker.socketId, "The speaker is connected.");
       }
       room.feedback = action.guesserId === null ? "wrong" : "correct";
       nextTaboo(room);
+      break;
+    }
+    case "listen-answer": {
+      phase("listen-question");
+      const { id, choices, answers } = room.listening;
+      requireGame(action.questionId === id && Date.now() < room.deadline, "This question has closed.");
+      requireGame(!answers.has(player.id), "Your answer is already locked in.");
+      requireGame(Number.isInteger(action.index) && action.index >= 0 && action.index < choices.length, "Choose a picture.");
+      answers.set(player.id, action.index);
+      if (room.players.every((p) => answers.has(p.id))) revealListenAnswer(room);
       break;
     }
     case "lobby":
@@ -245,15 +299,18 @@ function viewFor(room, player) {
     view.page = room.page + 1;
     view.pages = room.pages.length;
   }
-  if (phase === "countdown") view.next = room.next;
-  if (phase.startsWith("picture") && phase !== "picture-tally") {
+  if (phase !== "lobby" && phase !== "study") {
+    view.rounds = room.rounds;
+    view.roundIndex = room.roundIndex;
+  }
+  if (phase.startsWith("picture")) {
     const noun = room.pool[room.turn];
     view.activeId = activePlayer(room).id;
     view.turn = room.turn + 1;
     view.turns = room.pool.length;
     view.prompt = phase === "picture-answer" ? noun : { image: noun.image };
   }
-  if (phase === "memory" || phase === "memory-miss") {
+  if (phase.startsWith("memory")) {
     view.activeId = activePlayer(room).id;
     view.matches = room.matches;
     view.cards = room.cards.map(({ noun, kind, matched }, index) => {
@@ -265,8 +322,21 @@ function viewFor(room, player) {
     view.activeId = activePlayer(room).id;
     view.turn = room.turn + 1;
     view.turns = room.pool.length;
-    if (phase === "taboo-answer" || (phase === "taboo-secret" && view.activeId === player.id)) {
+    if (phase === "taboo-answer" || (phase === "taboo-speak" && view.activeId === player.id)) {
       view.prompt = room.pool[room.turn];
+    }
+  }
+  if (phase.startsWith("listen")) {
+    const { id, noun, choices, answers } = room.listening;
+    view.questionId = id;
+    view.turn = room.turn + 1;
+    view.turns = room.listenPool.length;
+    view.choices = choices.map(({ image }) => image);
+    view.answered = answers.size;
+    view.choice = answers.get(player.id) ?? null;
+    if (phase === "listen-answer") {
+      view.correctIndex = choices.indexOf(noun);
+      view.prompt = noun;
     }
   }
   return view;

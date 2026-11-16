@@ -26,10 +26,14 @@ const listIcons = {
   "outdoors-bikes": "🚲",
   "around-the-house": "🔑",
 };
-const roundNames = { picture: "Guess the Picture", memory: "Memory Match", taboo: "Taboo" };
+const roundNames = { picture: "Guess the Picture", memory: "Memory Match", taboo: "Taboo", listen: "Listen & Tap" };
 const soundFiles = {
   correct: "correct", wrong: "wrong-answer", countdown: "countdown", results: "good-result", button: "button",
 };
+const motion = window.gsap;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const wordAudio = new Audio();
+wordAudio.preload = "none";
 
 let session = loadSession();
 let mode = incomingCode ? "join" : "home";
@@ -40,6 +44,12 @@ let listsFailed = false;
 let pending = false;
 let message = "";
 let localDeadline = 0;
+let audioQuestion;
+let audioNotice = "";
+let roundIntro;
+let countdownMotion;
+let countdownBeat;
+let scoreMotion;
 
 function loadSession() {
   try {
@@ -73,6 +83,10 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (symbol) => escapes[symbol]);
 }
 
+function imageName(source) {
+  return source.split("/").pop().replace(/\.(png|webp)$/, "").replaceAll("-", " ");
+}
+
 function isHost() {
   return room.selfId === room.hostId;
 }
@@ -83,6 +97,39 @@ function isMyTurn() {
 
 function playSound(name) {
   if (soundFiles[name]) new Audio(`assets/sounds/${soundFiles[name]}.mp3`).play().catch(() => {});
+}
+
+function replayWord() {
+  if (!audioQuestion) return;
+  const question = audioQuestion;
+  wordAudio.currentTime = 0;
+  const showNotice = (notice) => {
+    if (question !== audioQuestion) return;
+    audioNotice = notice;
+    const status = app.querySelector(".audio-notice");
+    if (status) {
+      status.textContent = notice;
+      status.hidden = !notice;
+    }
+  };
+  wordAudio.play().then(() => showNotice("")).catch((error) => {
+    if (error.name === "AbortError") return;
+    showNotice(error.name === "NotAllowedError" ? "Tap Replay word to hear the audio." : "Audio couldn’t play. Try Replay word again.");
+  });
+}
+
+function updateWordAudio() {
+  if (room?.questionId === audioQuestion) return;
+  audioQuestion = room?.questionId;
+  audioNotice = "";
+  wordAudio.pause();
+  if (!audioQuestion) {
+    wordAudio.removeAttribute("src");
+    wordAudio.load();
+    return;
+  }
+  wordAudio.src = `/api/rooms/${room.code}/listen/${audioQuestion}`;
+  if (room.phase === "listen-question") replayWord();
 }
 
 function request(event, data, done) {
@@ -141,7 +188,10 @@ socket.on("room-state", (state) => {
     if (room.phase === "countdown") playSound("countdown");
     if (room.phase === "results") playSound("results");
   }
-  render();
+  if (previous?.phase === "listen-question" && room.phase === "listen-answer" && room.choice !== null) {
+    playSound(room.choice === room.correctIndex ? "correct" : "wrong");
+  }
+  render(previous);
 });
 
 async function loadLists() {
@@ -184,7 +234,7 @@ function renderEntry() {
     return `${heading()}${woodPanel(`
       <div class="room-intro">
         <h2>Play Mandarin together</h2>
-        <p>Study everyday words and play three rounds with 3–8 people. Everyone uses their own device.</p>
+        <p>Study everyday words and play three randomly selected rounds with 3–8 people. Everyone uses their own device.</p>
       </div>
       <div class="room-actions">${button("Host a game", "show-create")}${button("Join a game", "show-join", "ghost")}</div>
     `)}`;
@@ -298,13 +348,17 @@ function renderStudy() {
 
 function scores() {
   return `<div class="score-row" aria-label="Scores">${room.players.map((p) => `
-    <span class="score-chip ${p.id === room.activeId ? "active" : ""}">${escapeHtml(p.name)} ${p.score}</span>
+    <span class="score-chip ${p.id === room.activeId ? "active" : ""}" data-score-for="${p.id}">${escapeHtml(p.name)} ${p.score}</span>
   `).join("")}</div>`;
 }
 
-function roundHeader(round, label, details = "") {
-  return `<h2 class="round-badge">${round}</h2>
-    <div class="play-header"><span class="turn-label">${label}</span>${timer()}${details}</div>`;
+function roundTitle() {
+  return `Round ${room.roundIndex + 1} · ${escapeHtml(roundNames[room.rounds[room.roundIndex]])}`;
+}
+
+function roundHeader(label, details = "", showTimer = true) {
+  return `<h2 class="round-badge">${roundTitle()}</h2>
+    <div class="play-header"><span class="turn-label">${label}</span>${showTimer ? timer() : ""}${details}</div>`;
 }
 
 function wordCard(noun, includeImage = false) {
@@ -316,7 +370,7 @@ function wordCard(noun, includeImage = false) {
 
 function renderPicture(active) {
   const revealed = room.phase === "picture-answer";
-  return `${roundHeader("Round 1 · Guess the Picture", isMyTurn() ? "Your turn" : `${active}’s turn`)}
+  return `${roundHeader(isMyTurn() ? "Your turn" : `${active}’s turn`)}
     <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
     ${revealed ? wordCard(room.prompt) : `<div class="prompt-card"><img src="${escapeHtml(room.prompt.image)}" alt="Object to guess"></div>`}
     <p class="answer-hint">${revealed ? "Time’s up." : isMyTurn() ? "Say the Mandarin name out loud." : `Listen to ${active}’s answer.`}
@@ -329,23 +383,17 @@ function renderPicture(active) {
 }
 
 function renderMemory(active) {
-  const canFlip = isMyTurn() && room.phase === "memory";
   const current = room.players.find((p) => p.id === room.activeId);
   const columns = room.cards.length <= 20 ? 5 : 8;
-  return `${roundHeader("Round 2 · Memory Match", isMyTurn() ? "Your turn" : `${active}’s turn`,
-    `<span class="pairs-badge">${room.matches}/${room.cards.length / 2} pairs</span>`)}
-    <div class="online-memory" style="--columns:${columns}">${room.cards.map(({ face, value, matched }, index) => {
-      const hidden = face === "hidden";
-      const content = hidden ? "?" : face === "image"
-        ? `<img src="${escapeHtml(value)}" alt="${escapeHtml(value.split("/").pop().replace(/\.(png|webp)$/, "").replaceAll("-", " "))}">`
-        : `<span class="memory-${face}" ${face === "chinese" ? 'lang="zh"' : ""}>${escapeHtml(value)}</span>`;
-      return `<button type="button" class="online-card ${hidden ? "face-down" : ""} ${matched ? "is-matched" : ""}"
-        data-action="flip" data-index="${index}" data-network ${!hidden || !canFlip ? "data-locked" : ""}
-        ${hidden ? `aria-label="Card ${index + 1}, face down"` : ""}>${content}</button>`;
-    }).join("")}</div>
-    <p class="answer-hint">${current.online ? "Pair a Chinese word with its picture or English meaning." : `${active} is disconnected.`}</p>
-    ${isHost() && !current.online && room.phase === "memory" ? button("Pass turn", "pass-memory", "ghost", "data-network") : ""}
-    ${scores()}`;
+  const complete = room.phase === "memory-complete";
+  const hint = room.phase === "memory-miss" ? "Those cards don’t match."
+    : current.online ? "Pair a Chinese word with its picture or English meaning." : `${active} is disconnected.`;
+  return `${roundHeader(complete ? "All pairs matched" : isMyTurn() ? "Your turn" : `${active}’s turn`,
+    `<span class="pairs-badge">${room.matches}/${room.cards.length / 2} pairs</span>`, false)}
+    ${scores()}
+    <div class="online-memory" style="--columns:${columns}"></div>
+    ${complete ? "" : `<p class="answer-hint">${hint}</p>`}
+    ${isHost() && !current.online && room.phase === "memory" ? button("Pass turn", "pass-memory", "ghost", "data-network") : ""}`;
 }
 
 function renderTaboo(active) {
@@ -354,16 +402,14 @@ function renderTaboo(active) {
   const speaking = room.phase === "taboo-speak" || room.phase === "taboo-answer";
   const help = {
     "taboo-ready": mine ? "Open your secret word when you’re ready." : `Waiting for ${active} to get ready.`,
-    "taboo-secret": mine ? "Describe this in Mandarin without saying the word itself." : `${active} is reading the secret word.`,
-    "taboo-speak": mine ? "Describe the word in Mandarin." : "Guess the Mandarin word out loud.",
+    "taboo-speak": mine ? "Describe this in Mandarin without saying the word itself." : "Guess the Mandarin word out loud.",
     "taboo-answer": "Time’s up. The host records who guessed it.",
   };
-  return `${roundHeader("Round 3 · Taboo", mine ? "You’re the speaker" : `${active} is the speaker`)}
+  return `${roundHeader(mine ? "You’re the speaker" : `${active} is the speaker`)}
     <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
-    ${room.prompt ? wordCard(room.prompt, room.phase === "taboo-secret") : ""}
+    ${room.prompt ? wordCard(room.prompt, room.phase === "taboo-speak") : ""}
     <p class="answer-hint">${help[room.phase]}</p>
     ${room.phase === "taboo-ready" && mine ? button("Reveal my word", "reveal-taboo", "primary", "data-network") : ""}
-    ${room.phase === "taboo-secret" && mine ? button("Hide word and start timer", "start-taboo", "primary", "data-network") : ""}
     ${isHost() && (speaking || !speaker.online) ? `<div class="guess-buttons">
       ${speaking ? room.players.filter((p) => p.id !== room.activeId).map((p) =>
         button(`${escapeHtml(p.name)} guessed it`, "award-taboo", "success", `data-player="${p.id}" data-network`)).join("") : ""}
@@ -372,12 +418,51 @@ function renderTaboo(active) {
     ${scores()}`;
 }
 
+function renderListen() {
+  const revealed = room.phase === "listen-answer";
+  const locked = room.choice !== null;
+  const progress = revealed
+    ? !locked ? "Time’s up. Here’s the word." : room.choice === room.correctIndex ? "Correct!" : "Here’s the correct word."
+    : locked ? "Answer locked in." : "Listen and choose the matching picture.";
+  return `${roundHeader(`Word ${room.turn} of ${room.turns}`)}
+    ${button("🔊 Replay word", "replay-word", "ghost")}
+    <p class="audio-notice answer-hint" role="status" ${audioNotice ? "" : "hidden"}>${escapeHtml(audioNotice)}</p>
+    <div class="listen-choices" aria-label="Picture choices">${room.choices.map((source, index) => {
+      const selected = room.choice === index;
+      const correct = revealed && room.correctIndex === index;
+      const marker = correct ? "✓ Correct" : selected ? revealed ? "Your choice" : "Locked in" : "";
+      return `<button type="button" class="listen-choice${selected ? " is-selected" : ""}${correct ? " is-correct" : ""}"
+        data-action="listen-choose" data-index="${index}" data-network ${locked || revealed ? "data-locked" : ""}
+        aria-label="Picture ${index + 1}, ${escapeHtml(imageName(source))}${marker ? `, ${marker}` : ""}">
+        <img src="${escapeHtml(source)}" alt="" draggable="false">
+        ${marker ? `<span class="choice-marker">${marker}</span>` : ""}
+      </button>`;
+    }).join("")}</div>
+    <p class="answer-hint">${progress}${!revealed ? ` ${room.answered}/${room.players.length} answered.` : ""}</p>
+    ${revealed ? `<div class="listen-solution">${nounText(room.prompt)}</div>` : ""}
+    ${scores()}`;
+}
+
+function renderCountdown() {
+  return `<section class="round-countdown">
+    <h2 class="round-badge">${roundTitle()}</h2>
+    ${room.roundIndex === 0 ? `<ol class="round-lineup" aria-label="Rounds in this game">${room.rounds.map((round, index) => `
+      <li class="round-card ${index === room.roundIndex ? "is-current" : ""}" ${index === room.roundIndex ? 'aria-current="step"' : ""}>
+        <div class="round-card-inner">
+          <div class="round-card-front"><span>${index + 1}</span><strong>${escapeHtml(roundNames[round])}</strong></div>
+          <div class="round-card-back" aria-hidden="true"></div>
+        </div>
+      </li>`).join("")}</ol>` : ""}
+    <p class="countdown-number" data-time></p>
+  </section>`;
+}
+
 function renderTally() {
   const ranked = room.players.slice().sort((a, b) => b.score - a.score);
   const best = ranked[0].score;
   const leaders = ranked.filter((p) => p.score === best).map((p) => p.name);
   const final = room.phase === "results";
-  const round = room.phase === "picture-tally" ? 1 : 2;
+  const round = room.roundIndex + 1;
   const result = final ? "finished first" : leaders.length === 1 ? "leads" : "share the lead";
   return `<h2 class="round-badge">${final ? "Final results" : `Round ${round} complete`}</h2>
     <div class="trophy" aria-hidden="true">${final ? "🏆" : "📊"}</div>
@@ -386,7 +471,7 @@ function renderTally() {
       <li class="leader-row ${p.score === best ? "leader-row-top" : ""}">
         <span class="leader-name">${escapeHtml(p.name)}</span>
         <div class="leader-bar-track" aria-hidden="true"><div class="leader-bar-fill" style="width:${best ? p.score / best * 100 : 0}%"></div></div>
-        <span class="leader-score">${p.score}</span>
+        <span class="leader-score" data-score-for="${p.id}">${p.score}</span>
       </li>`).join("")}</ol>
     ${isHost() ? final ? button("Return to lobby", "lobby", "primary", "data-network")
       : button(`Continue to round ${round + 1}`, "continue", "primary", "data-network")
@@ -397,32 +482,199 @@ function renderGame() {
   const active = escapeHtml(room.players.find((p) => p.id === room.activeId)?.name ?? "");
   switch (room.phase) {
     case "study": return renderStudy();
-    case "countdown":
-      return `<h2 class="round-badge">${roundNames[room.next]}</h2><p class="countdown-number" data-time></p>`;
+    case "countdown": return renderCountdown();
     case "picture":
     case "picture-answer": return renderPicture(active);
     case "memory":
-    case "memory-miss": return renderMemory(active);
+    case "memory-miss":
+    case "memory-complete": return renderMemory(active);
     case "taboo-ready":
-    case "taboo-secret":
     case "taboo-speak":
     case "taboo-answer": return renderTaboo(active);
+    case "listen-question":
+    case "listen-answer": return renderListen();
     default: return renderTally();
   }
 }
 
-function render() {
+function animationsEnabled() {
+  return Boolean(motion) && !reducedMotion.matches;
+}
+
+function stopMemoryMotion(board) {
+  if (!board || !motion) return;
+  const targets = board.querySelectorAll(".memory-motion, .memory-inner");
+  motion.killTweensOf(targets);
+  motion.set(targets, { clearProps: "transform" });
+  board.querySelectorAll(".face-down .memory-answer").forEach((face) => face.replaceChildren());
+}
+
+function syncMemoryBoard(board, previous) {
+  if (!board.childElementCount) {
+    board.innerHTML = room.cards.map((_, index) => `
+      <button type="button" class="online-card" data-action="flip" data-index="${index}" data-network>
+        <span class="memory-motion"><span class="memory-inner">
+          <span class="memory-face memory-cover" aria-hidden="true">?</span>
+          <span class="memory-face memory-answer"></span>
+        </span></span>
+      </button>`).join("");
+  }
+
+  const canFlip = isMyTurn() && room.phase === "memory";
+  const animate = animationsEnabled();
+  const matches = [];
+  const misses = [];
+  room.cards.forEach(({ face, value, matched }, index) => {
+    const tile = board.children[index];
+    const spinner = tile.querySelector(".memory-inner");
+    const answer = tile.querySelector(".memory-answer");
+    const hidden = face === "hidden";
+    const before = previous?.cards?.[index];
+    const wasHidden = before?.face === "hidden";
+    const rotate = animate && before && hidden !== wasHidden;
+    const from = rotate && motion.isTweening(spinner) ? motion.getProperty(spinner, "rotationY") : wasHidden ? 0 : 180;
+    const mismatch = room.phase === "memory-miss" && !hidden && !matched;
+
+    if (!hidden && (face !== before?.face || value !== before?.value)) {
+      answer.innerHTML = face === "image"
+        ? `<img src="${escapeHtml(value)}" alt="${escapeHtml(imageName(value))}" draggable="false">`
+        : `<span class="memory-${face}" ${face === "chinese" ? 'lang="zh"' : ""}>${escapeHtml(value)}</span>`;
+    }
+    tile.classList.toggle("face-down", hidden);
+    tile.classList.toggle("is-revealed", !hidden);
+    tile.classList.toggle("is-matched", Boolean(matched));
+    tile.classList.toggle("is-mismatch", mismatch);
+    tile.toggleAttribute("data-locked", !hidden || !canFlip);
+    answer.setAttribute("aria-hidden", String(hidden));
+    if (hidden) tile.setAttribute("aria-label", `Card ${index + 1}, face down`);
+    else tile.removeAttribute("aria-label");
+
+    if (rotate) {
+      motion.fromTo(spinner, { rotationY: from }, {
+        rotationY: hidden ? 0 : 180, duration: 0.24, ease: "power2.inOut",
+        overwrite: true, clearProps: "transform",
+        onComplete: () => { if (hidden) answer.replaceChildren(); },
+      });
+    } else if (hidden && !wasHidden) {
+      answer.replaceChildren();
+    }
+    if (before && matched && !before.matched) matches.push(tile.firstElementChild);
+    if (mismatch && previous?.phase === "memory") misses.push(tile.firstElementChild);
+  });
+
+  if (!animate) return;
+  if (matches.length) {
+    motion.fromTo(matches, { scale: 0.96 }, {
+      scale: 1, duration: 0.3, delay: 0.16, ease: "back.out(2.2)", overwrite: true, clearProps: "transform",
+    });
+  }
+  if (misses.length) {
+    motion.to(misses, {
+      keyframes: [{ x: -3, duration: 0.06 }, { x: 3, duration: 0.08 }, { x: 0, duration: 0.09 }],
+      delay: 0.22, overwrite: true, clearProps: "transform",
+    });
+  }
+}
+
+function stopCountdownMotion() {
+  roundIntro?.revert();
+  countdownMotion?.revert();
+  roundIntro = countdownMotion = null;
+}
+
+function animateRoundReveal(scene) {
+  if (!animationsEnabled() || localDeadline - performance.now() < 750) return;
+  roundIntro = motion.context(() => {
+    const cards = scene.querySelectorAll(".round-card");
+    if (!cards.length) {
+      motion.from(scene.querySelector("h2"), { y: 7, opacity: 0.45, duration: 0.22, ease: "power2.out" });
+      return;
+    }
+    motion.timeline()
+      .fromTo(cards, { x: -24, y: 14, rotation: -5, opacity: 0 }, {
+        x: 0, y: 0, rotation: 0, opacity: 1, stagger: 0.065, duration: 0.28, ease: "power2.out",
+      })
+      .fromTo(scene.querySelectorAll(".round-card-inner"), { rotationY: 0 }, {
+        rotationY: 180, stagger: 0.09, duration: 0.3, ease: "power2.inOut",
+      }, 0.15);
+  });
+}
+
+function showScoreGains(previous) {
+  const announcement = document.getElementById("score-announcement");
+  if (previous?.code !== room?.code || !previous) {
+    announcement.textContent = "";
+    return;
+  }
+  const gains = room.players.flatMap((player) => {
+    const before = previous.players.find((p) => p.id === player.id);
+    return before && player.score > before.score ? [{ player, points: player.score - before.score }] : [];
+  });
+  if (!gains.length) return;
+  announcement.textContent = gains.map(({ player, points }) =>
+    `${player.name} earned ${points} ${points === 1 ? "point" : "points"}. Total ${player.score}.`).join(" ");
+  const elements = gains.flatMap(({ player, points }) => {
+    const score = app.querySelector(`[data-score-for="${player.id}"]`);
+    if (!score) return [];
+    const gain = document.createElement("span");
+    gain.className = "score-gain";
+    gain.textContent = `+${points}`;
+    gain.setAttribute("aria-hidden", "true");
+    score.append(gain);
+    return [{ score, gain }];
+  });
+  if (!animationsEnabled() || !elements.length) return;
+  scoreMotion = motion.context(() => {
+    const effects = motion.timeline();
+    effects.fromTo(elements.map(({ score }) => score), { scale: 0.95 }, {
+      scale: 1, duration: 0.35, ease: "back.out(3)",
+    }, 0);
+    effects.fromTo(elements.map(({ gain }) => gain), { y: 7, opacity: 0 }, {
+      y: 0, opacity: 1, duration: 0.2, ease: "power2.out",
+    }, 0);
+    effects.to(elements.map(({ gain }) => gain), {
+      y: -8, opacity: 0, duration: 0.22, ease: "power1.in",
+      onComplete: () => elements.forEach(({ gain }) => gain.remove()),
+    }, 0.52);
+  });
+}
+
+function render(previous) {
   document.body.classList.toggle("bg-vivid", !room);
-  const memory = room?.phase.startsWith("memory") && room.cards;
-  app.innerHTML = `<main class="screen ${memory ? "screen-wide" : ""} ${!room ? "entry-screen" : ""}">
+  updateWordAudio();
+  const memory = Boolean(room?.cards);
+  const board = app.querySelector(".online-memory");
+  const countdown = app.querySelector(".round-countdown");
+  const keepCountdown = countdown && room?.phase === "countdown" && previous?.deadline === room.deadline;
+  if (!memory) stopMemoryMotion(board);
+  if (!keepCountdown) stopCountdownMotion();
+  scoreMotion?.revert();
+  scoreMotion = null;
+
+  const page = document.createElement("template");
+  page.innerHTML = `<main class="screen ${memory ? "screen-wide" : ""} ${!room ? "entry-screen" : ""}">
     ${room ? room.phase === "lobby" ? renderLobby() : renderGame() : renderEntry()}
     <p class="connection-status" role="status" hidden></p>
     <p class="room-error" role="alert" hidden></p>
     ${room ? button(isHost() ? "Close room" : "Leave room", "leave", "ghost", "data-network") : ""}
   </main>`;
+  if (memory && board) page.content.querySelector(".online-memory").replaceWith(board);
+  if (keepCountdown) page.content.querySelector(".round-countdown").replaceWith(countdown);
+  app.replaceChildren(page.content);
+  if (memory) syncMemoryBoard(app.querySelector(".online-memory"), board ? previous : null);
+  if (!keepCountdown && room?.phase === "countdown") animateRoundReveal(app.querySelector(".round-countdown"));
+  showScoreGains(previous);
   updateStatus();
   updateTimer();
 }
+
+reducedMotion.addEventListener("change", ({ matches }) => {
+  if (!matches) return;
+  stopCountdownMotion();
+  stopMemoryMotion(app.querySelector(".online-memory"));
+  scoreMotion?.revert();
+  scoreMotion = null;
+});
 
 function updateStatus() {
   const online = socket.connected;
@@ -450,7 +702,7 @@ function updateStart() {
   start.disabled = !socket.connected || pending || !allOnline || size < 3 || !turns;
   app.querySelector("#start-hint").textContent = size < 3 ? "Invite at least three players, including the host."
     : !allOnline ? "Wait for disconnected players to return or remove them."
-      : !turns ? "Choose enough words for everyone to take a turn." : `${turns} picture and Taboo turns per player.`;
+      : !turns ? "Choose enough words for everyone to take a turn." : "Three games will be drawn at random.";
 }
 
 function updateTimer() {
@@ -458,7 +710,21 @@ function updateTimer() {
   if (!time || !localDeadline) return;
   const remaining = Math.max(0, localDeadline - performance.now());
   const seconds = Math.ceil(remaining / 1000);
-  time.textContent = room.phase === "countdown" ? (seconds || "Go!") : `${seconds}s`;
+  const countingDown = room.phase === "countdown";
+  const label = countingDown ? String(seconds || "Go!") : `${seconds}s`;
+  if (time.textContent !== label) time.textContent = label;
+  if (countingDown) {
+    const beat = `${room.deadline}:${seconds}`;
+    if (beat !== countdownBeat) {
+      countdownBeat = beat;
+      countdownMotion?.revert();
+      if (animationsEnabled()) {
+        countdownMotion = motion.context(() => {
+          motion.fromTo(time, { scale: 0.86 }, { scale: 1, duration: 0.28, ease: "back.out(2)" });
+        });
+      }
+    }
+  }
   time.closest(".ring")?.style.setProperty("--pct", remaining / room.duration);
 }
 
@@ -492,6 +758,10 @@ app.addEventListener("click", async (event) => {
   const control = event.target.closest("[data-action]");
   if (!control) return;
   const type = control.dataset.action;
+  if (type === "replay-word") {
+    replayWord();
+    return;
+  }
   playSound("button");
   switch (type) {
     case "show-create":
@@ -527,6 +797,7 @@ app.addEventListener("click", async (event) => {
     case "picture-correct":
     case "picture-wrong": action("judge-picture", { correct: type === "picture-correct" }); break;
     case "flip": action(type, { index: Number(control.dataset.index) }); break;
+    case "listen-choose": action("listen-answer", { questionId: room.questionId, index: Number(control.dataset.index) }); break;
     case "award-taboo":
     case "pass-taboo": action("judge-taboo", { guesserId: control.dataset.player ?? null }); break;
     default: action(type);

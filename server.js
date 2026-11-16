@@ -22,9 +22,17 @@ app.disable("x-powered-by");
 if (process.env.RENDER === "true") app.set("trust proxy", 1);
 app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "game.html")));
 app.get(["/app.js", "/style.css"], (req, res) => res.sendFile(path.join(__dirname, req.path)));
+app.get("/gsap.min.js", (_req, res) => res.sendFile(require.resolve("gsap/dist/gsap.min.js")));
 app.use("/assets", express.static(path.join(__dirname, "assets"), { maxAge: "1d" }));
 app.get("/health", (_req, res) => res.send("OK"));
 app.get("/api/lists", (_req, res) => res.json(catalog));
+app.get("/api/rooms/:code/listen/:questionId", (req, res) => {
+  const room = rooms.get(req.params.code);
+  if (!room?.phase.startsWith("listen") || room.listening.id !== req.params.questionId) return res.sendStatus(404);
+  const image = room.listening.noun.image;
+  const recording = path.basename(image, path.extname(image)) + ".mp3";
+  res.set("Cache-Control", "private, max-age=120").sendFile(path.join(__dirname, "audio", recording));
+});
 app.get("/api/rooms/:code/qr", async (req, res) => {
   if (!codePattern.test(req.params.code) || !rooms.has(req.params.code)) return res.sendStatus(404);
   const invite = new URL("/", `${req.protocol}://${req.get("host")}`);
@@ -177,7 +185,7 @@ io.on("connection", (socket) => {
       room.players = room.players.filter((p) => p !== target);
       updatePlayers(room);
     } else {
-      requireGame(action.revision === room.revision, "The game has moved on. Try the current turn.");
+      requireGame(action.type === "listen-answer" || action.revision === room.revision, "The game has moved on. Try the current turn.");
       const previousFeedback = room.feedback;
       room.feedback = null;
       try {
