@@ -1,9 +1,11 @@
 # Chinese Nouns Game
 
-Three to eight players study everyday Mandarin nouns and play three randomly selected rounds on their own devices.
-The round pool includes Guess the Picture, Memory Match, Taboo, and Listen & Tap.
+One to eight players study everyday Mandarin nouns and play three shuffled rounds.
+Guess the Picture, Memory Match, and Listen & Tap support solo and group play.
+Taboo can be drawn when at least three players start the session.
 The host creates a room and shares its QR code, invite link, or six-character code.
 The host also plays, starts rounds, and records the spoken answers.
+In solo Guess the Picture, reveal the word and mark your own spoken answer.
 Players speak aloud in person or use a separate voice call.
 Listen & Tap plays a Mandarin recording on each device and lets players replay it before choosing their answer.
 The bundled recordings were generated with [MeloTTS-Chinese](https://huggingface.co/myshell-ai/MeloTTS-Chinese).

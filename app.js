@@ -233,8 +233,8 @@ function renderEntry() {
   if (mode === "home") {
     return `${heading()}${woodPanel(`
       <div class="room-intro">
-        <h2>Play Mandarin together</h2>
-        <p>Study everyday words and play three randomly selected rounds with 3–8 people. Everyone uses their own device.</p>
+        <h2>Practise Mandarin</h2>
+        <p>Study everyday Mandarin words and play three rounds on your own or with up to seven friends.</p>
       </div>
       <div class="room-actions">${button("Host a game", "show-create")}${button("Join a game", "show-join", "ghost")}</div>
     `)}`;
@@ -279,8 +279,8 @@ function settingsPanel() {
   const timers = [
     ["studySeconds", "Study time per page", 10, 90, 5],
     ["answerSeconds", "Picture answer time", 3, 15, 1],
-    ["describeSeconds", "Taboo speaking time", 10, 45, 5],
   ];
+  if (room.eligibleRounds.includes("taboo")) timers.push(["describeSeconds", "Taboo speaking time", 10, 45, 5]);
 
   return `<section class="card-panel setup-grid">
     <h2>Game settings</h2>
@@ -370,14 +370,17 @@ function wordCard(noun, includeImage = false) {
 
 function renderPicture(active) {
   const revealed = room.phase === "picture-answer";
+  const solo = room.players.length === 1;
+  const hint = revealed ? solo ? "Check your answer and mark how you did." : "Time’s up."
+    : isMyTurn() ? "Say the Mandarin name out loud." : `Listen to ${active}’s answer.`;
   return `${roundHeader(isMyTurn() ? "Your turn" : `${active}’s turn`)}
     <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
     ${revealed ? wordCard(room.prompt) : `<div class="prompt-card"><img src="${escapeHtml(room.prompt.image)}" alt="Object to guess"></div>`}
-    <p class="answer-hint">${revealed ? "Time’s up." : isMyTurn() ? "Say the Mandarin name out loud." : `Listen to ${active}’s answer.`}
-      ${isHost() ? "Mark the spoken answer below." : ""}</p>
-    ${isHost() ? `<div class="judge-buttons">
-      ${button("Correct", "picture-correct", "success", "data-network")}
-      ${button("Incorrect", "picture-wrong", "error", "data-network")}
+    <p class="answer-hint">${hint} ${isHost() && !solo ? "Mark the spoken answer below." : ""}</p>
+    ${solo && !revealed ? button("Reveal answer", "reveal-picture", "primary", "data-network") : ""}
+    ${isHost() && (!solo || revealed) ? `<div class="judge-buttons">
+      ${button(solo ? "I got it" : "Correct", "picture-correct", "success", "data-network")}
+      ${button(solo ? "I missed it" : "Incorrect", "picture-wrong", "error", "data-network")}
     </div>` : ""}
     ${scores()}`;
 }
@@ -438,7 +441,7 @@ function renderListen() {
         ${marker ? `<span class="choice-marker">${marker}</span>` : ""}
       </button>`;
     }).join("")}</div>
-    <p class="answer-hint">${progress}${!revealed ? ` ${room.answered}/${room.players.length} answered.` : ""}</p>
+    <p class="answer-hint">${progress}${!revealed && room.players.length > 1 ? ` ${room.answered}/${room.players.length} answered.` : ""}</p>
     ${revealed ? `<div class="listen-solution">${nounText(room.prompt)}</div>` : ""}
     ${scores()}`;
 }
@@ -464,9 +467,12 @@ function renderTally() {
   const final = room.phase === "results";
   const round = room.roundIndex + 1;
   const result = final ? "finished first" : leaders.length === 1 ? "leads" : "share the lead";
+  const points = `${best} ${best === 1 ? "point" : "points"}`;
+  const summary = ranked.length === 1 ? `You ${final ? "scored" : "have"} ${points}.`
+    : `${leaders.join(" and ")} ${result} with ${points}.`;
   return `<h2 class="round-badge">${final ? "Final results" : `Round ${round} complete`}</h2>
     <div class="trophy" aria-hidden="true">${final ? "🏆" : "📊"}</div>
-    <p class="winner-line">${escapeHtml(leaders.join(" and "))} ${result} with ${best} ${best === 1 ? "point" : "points"}.</p>
+    <p class="winner-line">${escapeHtml(summary)}</p>
     <ol class="leaderboard">${ranked.map((p) => `
       <li class="leader-row ${p.score === best ? "leader-row-top" : ""}">
         <span class="leader-name">${escapeHtml(p.name)}</span>
@@ -697,12 +703,13 @@ function updateStart() {
   if (!start) return;
   const selected = lists.filter((list) => settings.listIds.includes(list.id)).reduce((sum, list) => sum + list.count, 0);
   const size = room.players.length;
-  const turns = Math.floor(selected / size);
   const allOnline = room.players.every((player) => player.online);
-  start.disabled = !socket.connected || pending || !allOnline || size < 3 || !turns;
-  app.querySelector("#start-hint").textContent = size < 3 ? "Invite at least three players, including the host."
-    : !allOnline ? "Wait for disconnected players to return or remove them."
-      : !turns ? "Choose enough words for everyone to take a turn." : "Three games will be drawn at random.";
+  start.disabled = !socket.connected || pending || !allOnline || selected < size;
+  app.querySelector("#start-hint").textContent = !allOnline ? "Wait for disconnected players to return or remove them."
+    : selected < size ? "Choose enough words for everyone to take a turn."
+      : size === 1 ? "Ready to play solo. You can also invite a friend."
+        : !room.eligibleRounds.includes("taboo") ? "Taboo joins the draw with three or more players."
+          : "Three games will be drawn at random.";
 }
 
 function updateTimer() {
@@ -749,6 +756,7 @@ app.addEventListener("input", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (!room || !isHost() || !["picture", "picture-answer"].includes(room.phase)) return;
+  if (room.players.length === 1 && room.phase === "picture") return;
   if (event.repeat || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
   event.preventDefault();
   action("judge-picture", { correct: event.key === "ArrowRight" });
@@ -789,7 +797,7 @@ app.addEventListener("click", async (event) => {
       break;
     }
     case "leave":
-      if (isHost() && !confirm("Close this room for everyone?")) break;
+      if (isHost() && !confirm(room.players.length === 1 ? "End this session?" : "Close this room for everyone?")) break;
       request("leave-room", {}, (response) => { if (response?.ok) resetRoom(); });
       break;
     case "start": action("start", { settings }); break;

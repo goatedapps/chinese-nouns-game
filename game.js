@@ -1,10 +1,10 @@
 const { randomInt, randomUUID } = require("node:crypto");
 
-const MIN_PLAYERS = 3;
+const MIN_PLAYERS = 1;
 const MAX_PLAYERS = 8;
 const DEFAULT_SETTINGS = { studySeconds: 30, answerSeconds: 5, describeSeconds: 20 };
 const TIMER_LIMITS = { studySeconds: [10, 90], answerSeconds: [3, 15], describeSeconds: [10, 45] };
-const ROUND_TYPES = ["picture", "memory", "taboo", "listen"];
+const ROUND_MIN_PLAYERS = { picture: 1, memory: 1, taboo: 3, listen: 1 };
 
 class GameError extends Error {}
 
@@ -40,9 +40,13 @@ function countdown(room) {
   changePhase(room, "countdown", 3000);
 }
 
+function eligibleRounds(playerCount) {
+  return Object.keys(ROUND_MIN_PLAYERS).filter((round) => playerCount >= ROUND_MIN_PLAYERS[round]);
+}
+
 function start(room, lists, settings) {
   requireGame(room.players.length >= MIN_PLAYERS && room.players.every((p) => p.socketId),
-    "At least three players must be connected. Remove any disconnected players before starting.");
+    "Players must be connected. Remove any disconnected players before starting.");
   const listIds = Array.isArray(settings?.listIds) ? [...new Set(settings.listIds)] : [];
   const selected = lists.filter((list) => listIds.includes(list.id)).flatMap((list) => list.nouns);
   requireGame(selected.length >= room.players.length, "Choose enough words for everyone to take a turn.");
@@ -57,7 +61,7 @@ function start(room, lists, settings) {
   room.settings = { listIds, ...timers };
   room.players.forEach((player) => { player.score = 0; });
   room.selected = selected;
-  room.rounds = shuffled(ROUND_TYPES).slice(0, 3);
+  room.rounds = shuffled(eligibleRounds(room.players.length)).slice(0, 3);
   room.roundIndex = 0;
   room.studyPool = turnPool(selected, room.players.length);
   const studyOrder = room.studyPool.slice().sort((a, b) => a.order - b.order);
@@ -187,9 +191,16 @@ function play(room, player, action, lists) {
       phase("study");
       countdown(room);
       break;
+    case "reveal-picture":
+      host();
+      phase("picture");
+      requireGame(room.players.length === 1, "The answer is revealed when time runs out.");
+      changePhase(room, "picture-answer");
+      break;
     case "judge-picture":
       host();
-      phase("picture", "picture-answer");
+      if (room.players.length === 1) phase("picture-answer");
+      else phase("picture", "picture-answer");
       if (action.correct === true) {
         activePlayer(room).score++;
       } else {
@@ -293,7 +304,10 @@ function viewFor(room, player) {
   };
 
   const phase = room.phase;
-  if (phase === "lobby") view.settings = room.settings;
+  if (phase === "lobby") {
+    view.settings = room.settings;
+    view.eligibleRounds = eligibleRounds(room.players.length);
+  }
   if (phase === "study") {
     view.nouns = room.pages[room.page];
     view.page = room.page + 1;

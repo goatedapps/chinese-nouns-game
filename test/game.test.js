@@ -13,16 +13,18 @@ const nouns = Array.from({ length: 10 }, (_, order) => ({
 }));
 const lists = [{ id: "sample", nouns }];
 
-function startRoom() {
-  const players = ["host", "guest", "friend"].map((id) => ({ id, name: id, socketId: id, score: 0 }));
+function startRoom(playerCount = 3) {
+  const players = ["host", "guest", "friend"].slice(0, playerCount).map((id) => ({ id, name: id, socketId: id, score: 0 }));
   const room = { code: "ABC234", hostId: "host", players, phase: "lobby" };
   play(room, players[0], { type: "start", settings: { ...DEFAULT_SETTINGS, listIds: ["sample"] } }, lists);
   return room;
 }
 
-function startRound(round, last = false) {
-  const room = startRoom();
-  room.rounds = ["picture", "memory", "taboo", "listen"].filter((type) => type !== round).slice(0, 2);
+function startRound(round, last = false, playerCount = 3) {
+  const room = startRoom(playerCount);
+  room.rounds = ["picture", "memory", "taboo", "listen"]
+    .filter((type) => type !== round && (playerCount >= 3 || type !== "taboo"))
+    .slice(0, 2);
   if (last) room.rounds.push(round);
   else room.rounds.unshift(round);
   room.roundIndex = last ? 2 : 0;
@@ -39,6 +41,30 @@ test("a new session draws three distinct rounds for the shared countdown", () =>
   play(room, host, { type: "skip-study" }, lists);
   assert.deepEqual(viewFor(room, guest).rounds, room.rounds);
   assert.equal(viewFor(room, guest).roundIndex, 0);
+});
+
+test("solo and two-player rooms start with all three compatible rounds", () => {
+  for (const playerCount of [1, 2]) {
+    const room = startRoom(playerCount);
+    assert.equal(room.phase, "study");
+    assert.deepEqual(room.rounds.slice().sort(), ["listen", "memory", "picture"]);
+  }
+});
+
+test("solo picture play reveals the word before self-scoring", () => {
+  const room = startRound("picture", false, 1);
+  const [host] = room.players;
+  const correct = { type: "judge-picture", correct: true };
+  assert.equal(viewFor(room, host).prompt.chinese, undefined);
+  assert.throws(() => play(room, host, correct, lists), GameError);
+  play(room, host, { type: "reveal-picture" }, lists);
+  assert.equal(room.phase, "picture-answer");
+  assert(viewFor(room, host).prompt.chinese);
+  play(room, host, correct, lists);
+  assert.equal(host.score, 1);
+  assert.equal(room.turn, 1);
+  elapse(room);
+  assert.equal(room.phase, "picture-answer");
 });
 
 test("Listen & Tap locks choices privately and scores on reveal", () => {
