@@ -1,5 +1,5 @@
 const { randomBytes, randomInt, randomUUID } = require("node:crypto");
-const { readFileSync } = require("node:fs");
+const { readFileSync, readdirSync } = require("node:fs");
 const { createServer } = require("node:http");
 const path = require("node:path");
 const express = require("express");
@@ -8,7 +8,8 @@ const { Server } = require("socket.io");
 const { parseNouns } = require("./nouns");
 const { MAX_PLAYERS, DEFAULT_SETTINGS, GameError, requireGame, play, elapse, viewFor } = require("./game");
 
-const lists = parseNouns(readFileSync(path.join(__dirname, "nouns.txt"), "utf8"));
+const imageFiles = new Set(readdirSync(path.join(__dirname, "assets", "images")));
+const lists = parseNouns(readFileSync(path.join(__dirname, "nouns.txt"), "utf8"), imageFiles);
 const catalog = lists.map(({ id, label, nouns }) => ({ id, label, count: nouns.length }));
 const codes = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 const codePattern = new RegExp(`^[${codes}]{6}$`);

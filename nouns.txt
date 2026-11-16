@@ -73,3 +73,228 @@
 | Rubbish bin | 垃圾桶 | lā jī tǒng |
 | Sponge | 海绵 | hǎi mián |
 | Feather duster | 鸡毛掸子 | jī máo dǎn zi |
+
+## List 6 — Hawker & Market 小贩中心
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Hawker centre | 小贩中心 | xiǎo fàn zhōng xīn |
+| Wet market | 巴刹 | bā shā |
+| Coffee shop | 咖啡店 | kā fēi diàn |
+| Stall | 摊位 | tān wèi |
+| Tray | 托盘 | tuō pán |
+| Tray return point | 还盘处 | huán pán chù |
+| Table number | 桌号 | zhuō hào |
+| Menu | 菜单 | cài dān |
+| Cashier counter | 收银台 | shōu yín tái |
+| Packet of tissue | 纸巾 | zhǐ jīn |
+
+## List 7 — At the Bus Stop 巴士站
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Bus | 巴士 | bā shì |
+| Bus stop | 巴士站 | bā shì zhàn |
+| Bus captain | 巴士车长 | bā shì chē zhǎng |
+| Bus service number | 巴士号码 | bā shì hào mǎ |
+| Shelter roof | 遮篷 | zhē péng |
+| Bench | 长凳 | cháng dèng |
+| EZ-Link card | 易通卡 | yì tōng kǎ |
+| Card reader | 读卡器 | dú kǎ qì |
+| Arrival screen | 显示屏 | xiǎn shì píng |
+| Queue | 队列 | duì liè |
+
+## List 8 — On the MRT 地铁
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| MRT | 地铁 | dì tiě |
+| Station | 车站 | chē zhàn |
+| Platform | 月台 | yuè tái |
+| Fare gate | 闸门 | zhá mén |
+| Escalator | 扶梯 | fú tī |
+| Lift | 电梯 | diàn tī |
+| Grab pole | 扶手 | fú shǒu |
+| Reserved seat | 优先座 | yōu xiān zuò |
+| Train door | 车门 | chē mén |
+| Route map | 路线图 | lù xiàn tú |
+
+## List 9 — The Park 公园
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Park | 公园 | gōng yuán |
+| Jogging track | 跑道 | pǎo dào |
+| Pavilion | 凉亭 | liáng tíng |
+| Grass patch | 草地 | cǎo dì |
+| Pond | 池塘 | chí táng |
+| Fountain | 喷泉 | pēn quán |
+| Flower bed | 花圃 | huā pǔ |
+| Kite | 风筝 | fēng zheng |
+| Fitness corner | 健身角落 | jiàn shēn jiǎo luò |
+| Signboard | 指示牌 | zhǐ shì pái |
+
+## List 10 — Playground 游乐场
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Playground | 游乐场 | yóu lè chǎng |
+| Slide | 滑梯 | huá tī |
+| See-saw | 跷跷板 | qiāo qiāo bǎn |
+| Climbing frame | 攀爬架 | pān pá jià |
+| Sand pit | 沙池 | shā chí |
+| Monkey bars | 攀爬横梯 | pān pá héng tī |
+| Rubber flooring | 橡胶地板 | xiàng jiāo dì bǎn |
+| Spring rider | 摇摇马 | yáo yáo mǎ |
+| Crawl tunnel | 隧道 | suì dào |
+| Rope net | 绳网 | shéng wǎng |
+
+## List 11 — Void Deck & HDB 组屋楼下
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| HDB flat | 组屋 | zǔ wū |
+| Void deck | 组屋底层 | zǔ wū dǐ céng |
+| Block number | 大牌 | dà pái |
+| Corridor | 走廊 | zǒu láng |
+| Rubbish chute | 垃圾槽 | lā jī cáo |
+| Letterbox | 信箱 | xìn xiāng |
+| Laundry pole | 晾衣杆 | liàng yī gān |
+| Lift lobby | 电梯口 | diàn tī kǒu |
+| Car park | 停车场 | tíng chē chǎng |
+| Notice board | 布告板 | bù gào bǎn |
+
+## List 12 — On the Road 马路上
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Traffic light | 交通灯 | jiāo tōng dēng |
+| Zebra crossing | 斑马线 | bān mǎ xiàn |
+| Overhead bridge | 行人天桥 | xíng rén tiān qiáo |
+| Pavement | 人行道 | rén xíng dào |
+| Taxi | 德士 | dé shì |
+| Road sign | 交通标志 | jiāo tōng biāo zhì |
+| Big drain | 沟渠 | gōu qú |
+| Lamp post | 路灯 | lù dēng |
+| Speed hump | 减速带 | jiǎn sù dài |
+| Pedestrian | 行人 | xíng rén |
+
+## List 13 — The Neighbourhood 邻里
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Neighbourhood shops | 邻里商店 | lín lǐ shāng diàn |
+| Community club | 民众俱乐部 | mín zhòng jù lè bù |
+| Clinic | 诊所 | zhěn suǒ |
+| Provision shop | 杂货店 | zá huò diàn |
+| Covered walkway | 有盖走道 | yǒu gài zǒu dào |
+| Bicycle rack | 脚踏车架 | jiǎo tà chē jià |
+| Guard post | 保安亭 | bǎo ān tíng |
+| School gate | 校门 | xiào mén |
+| Field | 大操场 | dà cāo chǎng |
+| Rag-and-bone man | 加龙古尼 | jiā lóng gǔ ní |
+
+## List 14 — Beach & Seaside 海边
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Sandy beach | 沙滩 | shā tān |
+| The sea | 大海 | dà hǎi |
+| Waves | 海浪 | hǎi làng |
+| Seashell | 贝壳 | bèi ké |
+| Coconut tree | 椰子树 | yē zi shù |
+| Lifeguard | 救生员 | jiù shēng yuán |
+| Small boat | 小船 | xiǎo chuán |
+| Rock breakwater | 石堤 | shí dī |
+| Barbecue pit | 烧烤炉 | shāo kǎo lú |
+| Beach umbrella | 遮阳伞 | zhē yáng sǎn |
+
+## List 15 — Construction Site 建筑工地
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Construction site | 建筑工地 | jiàn zhù gōng dì |
+| Crane | 吊车 | diào chē |
+| Excavator | 挖土机 | wā tǔ jī |
+| Lorry | 罗厘 | luó lí |
+| Cement mixer | 搅拌机 | jiǎo bàn jī |
+| Scaffolding | 脚手架 | jiǎo shǒu jià |
+| Safety helmet | 安全帽 | ān quán mào |
+| Site hoarding | 围篱 | wéi lí |
+| Bricks | 砖块 | zhuān kuài |
+| Pile of sand | 沙堆 | shā duī |
+
+## List 16 — Stationery 文具
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Stapler | 订书机 | dìng shū jī |
+| Paper clip | 回形针 | huí xíng zhēn |
+| Correction tape | 修正带 | xiū zhèng dài |
+| Glue stick | 胶棒 | jiāo bàng |
+| Highlighter | 荧光笔 | yíng guāng bǐ |
+| Protractor | 量角器 | liáng jiǎo qì |
+| Compasses | 圆规 | yuán guī |
+| Set square | 三角尺 | sān jiǎo chǐ |
+| Pencil sharpener | 卷笔刀 | juǎn bǐ dāo |
+| Hole puncher | 打孔机 | dǎ kǒng jī |
+
+## List 17 — Home Appliances 家用电器
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Washing machine | 洗衣机 | xǐ yī jī |
+| Refrigerator | 冰箱 | bīng xiāng |
+| Microwave oven | 微波炉 | wēi bō lú |
+| Oven | 烤箱 | kǎo xiāng |
+| Fan | 风扇 | fēng shàn |
+| Air conditioner | 冷气机 | lěng qì jī |
+| Hair dryer | 吹风机 | chuī fēng jī |
+| Iron | 熨斗 | yùn dǒu |
+| Plug | 插头 | chā tóu |
+| Power socket | 插座 | chā zuò |
+
+## List 18 — Personal Items 随身物品
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Zip | 拉链 | lā liàn |
+| Button | 纽扣 | niǔ kòu |
+| Shoelace | 鞋带 | xié dài |
+| Belt | 腰带 | yāo dài |
+| Clothes hanger | 衣架 | yī jià |
+| Umbrella | 雨伞 | yǔ sǎn |
+| Wallet | 钱包 | qián bāo |
+| Spectacles | 眼镜 | yǎn jìng |
+| Comb | 梳子 | shū zi |
+| Nail clippers | 指甲刀 | zhǐ jiǎ dāo |
+
+## List 19 — Outdoors & Bikes 户外骑行
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Helmet | 头盔 | tóu kuī |
+| Bicycle bell | 脚踏车铃 | jiǎo tà chē líng |
+| Handlebar | 车把 | chē bǎ |
+| Pedal | 踏板 | tà bǎn |
+| Tyre | 轮胎 | lún tāi |
+| Watering can | 洒水壶 | sǎ shuǐ hú |
+| Flower pot | 花盆 | huā pén |
+| Spade / shovel | 铲子 | chǎn zi |
+| Torch light | 手电筒 | shǒu diàn tǒng |
+| Swing | 秋千 | qiū qiān |
+
+## List 20 — Around the House 五金零件
+
+| English | 中文 | Hanyu Pinyin |
+| --- | --- | --- |
+| Hinge | 铰链 | jiǎo liàn |
+| Door lock | 门锁 | mén suǒ |
+| Doorbell | 门铃 | mén líng |
+| Bolt / latch | 门闩 | mén shuān |
+| Ladder | 梯子 | tī zi |
+| Rope | 绳子 | shéng zi |
+| Chain | 链条 | liàn tiáo |
+| Hook | 钩子 | gōu zi |
+| Switch | 开关 | kāi guān |
+| Light bulb | 灯泡 | dēng pào |

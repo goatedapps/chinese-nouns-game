@@ -4,7 +4,28 @@ const sessionKey = "chinese-nouns-room";
 const incomingCode = new URLSearchParams(location.search).get("room")?.toUpperCase() ?? "";
 const entry = { name: "", code: incomingCode };
 const colors = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"];
-const listIcons = { tools: "🛠️", "in-the-kitchen": "🍳", furniture: "🪑", bathroom: "🛁", cleaning: "🧹" };
+const listIcons = {
+  tools: "🛠️",
+  "in-the-kitchen": "🍳",
+  furniture: "🪑",
+  bathroom: "🛁",
+  cleaning: "🧹",
+  "hawker-market": "🍜",
+  "at-the-bus-stop": "🚌",
+  "on-the-mrt": "🚇",
+  "the-park": "🌳",
+  playground: "🛝",
+  "void-deck-hdb": "🏢",
+  "on-the-road": "🚦",
+  "the-neighbourhood": "🏘️",
+  "beach-seaside": "🏖️",
+  "construction-site": "🚧",
+  stationery: "📎",
+  "home-appliances": "🧺",
+  "personal-items": "👓",
+  "outdoors-bikes": "🚲",
+  "around-the-house": "🔑",
+};
 const roundNames = { picture: "Guess the Picture", memory: "Memory Match", taboo: "Taboo" };
 const soundFiles = {
   correct: "correct", wrong: "wrong-answer", countdown: "countdown", results: "good-result", button: "button",
@@ -316,7 +337,7 @@ function renderMemory(active) {
     <div class="online-memory" style="--columns:${columns}">${room.cards.map(({ face, value, matched }, index) => {
       const hidden = face === "hidden";
       const content = hidden ? "?" : face === "image"
-        ? `<img src="${escapeHtml(value)}" alt="${escapeHtml(value.split("/").pop().replace(/\.png$/, "").replaceAll("-", " "))}">`
+        ? `<img src="${escapeHtml(value)}" alt="${escapeHtml(value.split("/").pop().replace(/\.(png|webp)$/, "").replaceAll("-", " "))}">`
         : `<span class="memory-${face}" ${face === "chinese" ? 'lang="zh"' : ""}>${escapeHtml(value)}</span>`;
       return `<button type="button" class="online-card ${hidden ? "face-down" : ""} ${matched ? "is-matched" : ""}"
         data-action="flip" data-index="${index}" data-network ${!hidden || !canFlip ? "data-locked" : ""}

@@ -14,7 +14,7 @@ function slugifyLabel(label) {
     .replace(/\s+/g, "-");
 }
 
-function parseNouns(text) {
+function parseNouns(text, imageFiles = new Set()) {
   const lines = text.split(/\r?\n/);
   const lists = [];
   let current = null;
@@ -43,13 +43,14 @@ function parseNouns(text) {
 
     const [english, chinese, pinyin] = cells;
     const slug = imageSlug(english);
+    const imageFile = imageFiles.has(`${slug}.webp`) ? `${slug}.webp` : `${slug}.png`;
     current.nouns.push({
       english,
       chinese,
       pinyin,
       listId: current.id,
       listLabel: current.label,
-      image: `assets/images/${slug}.png`,
+      image: `assets/images/${imageFile}`,
       order: order++,
     });
   }
