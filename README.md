@@ -8,6 +8,7 @@ The host also plays, starts rounds, and records the spoken answers.
 In solo Guess the Picture, reveal the word and mark your own spoken answer.
 Players speak aloud in person or use a separate voice call.
 Listen & Tap plays a Mandarin recording on each device and lets players replay it before choosing their answer.
+In solo play, submitting an answer immediately starts the next question and leaves the previous word visible for review.
 The bundled recordings were generated with [MeloTTS-Chinese](https://huggingface.co/myshell-ai/MeloTTS-Chinese).
 
 ## Run locally

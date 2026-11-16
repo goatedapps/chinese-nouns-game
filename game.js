@@ -63,6 +63,7 @@ function start(room, lists, settings) {
   room.selected = selected;
   room.rounds = shuffled(eligibleRounds(room.players.length)).slice(0, 3);
   room.roundIndex = 0;
+  room.listenRecap = null;
   room.studyPool = turnPool(selected, room.players.length);
   const studyOrder = room.studyPool.slice().sort((a, b) => a.order - b.order);
   room.pages = [];
@@ -118,13 +119,25 @@ function beginListenQuestion(room) {
   changePhase(room, "listen-question", 12000);
 }
 
-function revealListenAnswer(room) {
+function nextListenQuestion(room) {
+  room.turn++;
+  if (room.turn === room.listenPool.length) finishRound(room);
+  else beginListenQuestion(room);
+}
+
+function revealListenAnswer(room, advance = false) {
   const { noun, choices, answers } = room.listening;
   const correctIndex = choices.indexOf(noun);
   for (const player of room.players) {
     if (answers.get(player.id) === correctIndex) player.score++;
   }
-  changePhase(room, "listen-answer", 3200);
+  if (advance) {
+    room.listenRecap = { noun, correct: answers.get(room.hostId) === correctIndex };
+    nextListenQuestion(room);
+  } else {
+    room.listenRecap = null;
+    changePhase(room, "listen-answer", 3200);
+  }
 }
 
 function nextPicture(room) {
@@ -165,9 +178,7 @@ function elapse(room) {
       revealListenAnswer(room);
       break;
     case "listen-answer":
-      room.turn++;
-      if (room.turn === room.listenPool.length) finishRound(room);
-      else beginListenQuestion(room);
+      nextListenQuestion(room);
       break;
     case "taboo-speak":
       changePhase(room, "taboo-answer");
@@ -274,7 +285,7 @@ function play(room, player, action, lists) {
       requireGame(!answers.has(player.id), "Your answer is already locked in.");
       requireGame(Number.isInteger(action.index) && action.index >= 0 && action.index < choices.length, "Choose a picture.");
       answers.set(player.id, action.index);
-      if (room.players.every((p) => answers.has(p.id))) revealListenAnswer(room);
+      if (room.players.every((p) => answers.has(p.id))) revealListenAnswer(room, room.players.length === 1);
       break;
     }
     case "lobby":
@@ -316,6 +327,7 @@ function viewFor(room, player) {
   if (phase !== "lobby" && phase !== "study") {
     view.rounds = room.rounds;
     view.roundIndex = room.roundIndex;
+    if (room.rounds[room.roundIndex] === "listen" && room.listenRecap) view.listenRecap = room.listenRecap;
   }
   if (phase.startsWith("picture")) {
     const noun = room.pool[room.turn];

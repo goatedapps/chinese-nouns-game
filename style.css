@@ -532,6 +532,16 @@ h2, p { margin: 0; }
 .listen-solution { text-align: center; }
 .listen-solution .cn { font-size: clamp(1.6rem, 5vw, 2.25rem); font-weight: 800; }
 .listen-solution .py { color: var(--ink-soft); }
+.listen-recap {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  max-width: 100%;
+  padding: 0.5rem 0.85rem;
+  text-align: center;
+}
+.listen-recap p:first-child { color: var(--ink-soft); font-size: 0.85rem; }
+.listen-recap b { color: var(--ink); font-size: 1.15em; }
 .score-chip, .leader-name { overflow-wrap: anywhere; }
 .leaderboard { padding: 0; }
 .leader-name { width: min(38%, 8em); }

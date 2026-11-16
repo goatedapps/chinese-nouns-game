@@ -32,6 +32,7 @@ const soundFiles = {
 };
 const motion = window.gsap;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+const effectAudio = new Audio();
 const wordAudio = new Audio();
 wordAudio.preload = "none";
 
@@ -96,12 +97,15 @@ function isMyTurn() {
 }
 
 function playSound(name) {
-  if (soundFiles[name]) new Audio(`assets/sounds/${soundFiles[name]}.mp3`).play().catch(() => {});
+  if (!soundFiles[name] || (!wordAudio.paused && !wordAudio.ended)) return;
+  effectAudio.src = `assets/sounds/${soundFiles[name]}.mp3`;
+  effectAudio.play().catch(() => {});
 }
 
 function replayWord() {
   if (!audioQuestion) return;
   const question = audioQuestion;
+  effectAudio.pause();
   wordAudio.currentTime = 0;
   const showNotice = (notice) => {
     if (question !== audioQuestion) return;
@@ -167,6 +171,7 @@ function resetRoom(reason = "") {
   entry.code = "";
   mode = "home";
   message = reason;
+  updateWordAudio();
   render();
 }
 
@@ -183,6 +188,7 @@ socket.on("room-state", (state) => {
   localDeadline = room.deadline ? performance.now() + room.deadline - room.serverTime : 0;
   if (room.phase === "lobby" && !settings) settings = structuredClone(room.settings);
   if (room.phase !== "lobby") settings = null;
+  updateWordAudio();
   if (previous && previous.revision !== room.revision) playSound(room.feedback);
   if (previous && previous.phase !== room.phase) {
     if (room.phase === "countdown") playSound("countdown");
@@ -421,6 +427,15 @@ function renderTaboo(active) {
     ${scores()}`;
 }
 
+function renderListenRecap() {
+  if (!room.listenRecap) return "";
+  const { noun, correct } = room.listenRecap;
+  return `<div class="listen-recap">
+    <p>Previous word · <strong>${correct ? "Correct" : "Incorrect"}</strong></p>
+    <p><b lang="zh">${escapeHtml(noun.chinese)}</b> ${escapeHtml(noun.pinyin)} · ${escapeHtml(noun.english)}</p>
+  </div>`;
+}
+
 function renderListen() {
   const revealed = room.phase === "listen-answer";
   const locked = room.choice !== null;
@@ -443,6 +458,7 @@ function renderListen() {
     }).join("")}</div>
     <p class="answer-hint">${progress}${!revealed && room.players.length > 1 ? ` ${room.answered}/${room.players.length} answered.` : ""}</p>
     ${revealed ? `<div class="listen-solution">${nounText(room.prompt)}</div>` : ""}
+    ${renderListenRecap()}
     ${scores()}`;
 }
 
@@ -473,6 +489,7 @@ function renderTally() {
   return `<h2 class="round-badge">${final ? "Final results" : `Round ${round} complete`}</h2>
     <div class="trophy" aria-hidden="true">${final ? "🏆" : "📊"}</div>
     <p class="winner-line">${escapeHtml(summary)}</p>
+    ${renderListenRecap()}
     <ol class="leaderboard">${ranked.map((p) => `
       <li class="leader-row ${p.score === best ? "leader-row-top" : ""}">
         <span class="leader-name">${escapeHtml(p.name)}</span>
@@ -647,7 +664,6 @@ function showScoreGains(previous) {
 
 function render(previous) {
   document.body.classList.toggle("bg-vivid", !room);
-  updateWordAudio();
   const memory = Boolean(room?.cards);
   const board = app.querySelector(".online-memory");
   const countdown = app.querySelector(".round-countdown");
@@ -770,7 +786,7 @@ app.addEventListener("click", async (event) => {
     replayWord();
     return;
   }
-  playSound("button");
+  if (type !== "listen-choose") playSound("button");
   switch (type) {
     case "show-create":
     case "show-join":

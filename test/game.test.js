@@ -106,6 +106,31 @@ test("a final Listen & Tap round reveals on timeout and ends at results", () => 
   assert.equal(room.phase, "results");
 });
 
+test("solo Listen & Tap advances on submission and keeps the previous word for review", () => {
+  const room = startRound("listen", true, 1);
+  const [player] = room.players;
+  const first = room.listening;
+  const answer = (question, index) => play(room, player, {
+    type: "listen-answer", questionId: question.id, index,
+  }, lists);
+
+  answer(first, first.choices.indexOf(first.noun));
+  assert.equal(room.phase, "listen-question");
+  assert.equal(room.turn, 1);
+  assert.notEqual(room.listening.id, first.id);
+  assert.equal(player.score, 1);
+  assert.deepEqual(viewFor(room, player).listenRecap, { noun: first.noun, correct: true });
+  assert.equal(viewFor(room, player).prompt, undefined);
+  assert.throws(() => answer(first, 0), GameError);
+
+  room.turn = room.listenPool.length - 1;
+  const last = room.listening;
+  answer(last, (last.choices.indexOf(last.noun) + 1) % last.choices.length);
+  assert.equal(room.phase, "results");
+  assert.equal(player.score, 1);
+  assert.deepEqual(viewFor(room, player).listenRecap, { noun: last.noun, correct: false });
+});
+
 test("Taboo starts the timer when the speaker reveals their private word", () => {
   const room = startRound("taboo");
   const [speaker, guest] = room.players;
