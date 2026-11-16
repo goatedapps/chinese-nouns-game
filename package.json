@@ -1,0 +1,16 @@
+{
+  "name": "chinese-nouns-game",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4"
+  }
+}

@@ -1,1080 +1,518 @@
 const app = document.getElementById("app");
-
-const SOUNDS = {
-  button: "assets/sounds/button.mp3",
-  correct: "assets/sounds/correct.mp3",
-  wrong: "assets/sounds/wrong-answer.mp3",
-  goodResult: "assets/sounds/good-result.mp3",
-  ticker: "assets/sounds/ticker.mp3",
-  countdown: "assets/sounds/countdown.mp3",
+const socket = io({ autoConnect: false });
+const sessionKey = "chinese-nouns-room";
+const incomingCode = new URLSearchParams(location.search).get("room")?.toUpperCase() ?? "";
+const entry = { name: "", code: incomingCode };
+const colors = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"];
+const listIcons = { tools: "🛠️", "in-the-kitchen": "🍳", furniture: "🪑", bathroom: "🛁", cleaning: "🧹" };
+const roundNames = { picture: "Guess the Picture", memory: "Memory Match", taboo: "Taboo" };
+const soundFiles = {
+  correct: "correct", wrong: "wrong-answer", countdown: "countdown", results: "good-result", button: "button",
 };
+
+let session = loadSession();
+let mode = incomingCode ? "join" : "home";
+let room;
+let settings;
+let lists = [];
+let listsFailed = false;
+let pending = false;
+let message = "";
+let localDeadline = 0;
+
+function loadSession() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(sessionKey));
+    if (saved?.code && saved.token && (!incomingCode || incomingCode === saved.code)) return saved;
+  } catch {
+    // A browser may disable storage.
+  }
+  return null;
+}
+
+function saveSession(value) {
+  session = value;
+  try {
+    if (value) sessionStorage.setItem(sessionKey, JSON.stringify(value));
+    else sessionStorage.removeItem(sessionKey);
+  } catch {
+    // Keep the seat in memory for the lifetime of this page.
+  }
+}
+
+function updateRoomUrl(code) {
+  const url = new URL(location.href);
+  if (code) url.searchParams.set("room", code);
+  else url.searchParams.delete("room");
+  history.replaceState(null, "", url);
+}
+
+function escapeHtml(value) {
+  const escapes = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return String(value).replace(/[&<>"']/g, (symbol) => escapes[symbol]);
+}
+
+function isHost() {
+  return room.selfId === room.hostId;
+}
+
+function isMyTurn() {
+  return room.selfId === room.activeId;
+}
 
 function playSound(name) {
-  const src = SOUNDS[name];
-  if (!src) return;
-  new Audio(src).play().catch(() => {});
+  if (soundFiles[name]) new Audio(`assets/sounds/${soundFiles[name]}.mp3`).play().catch(() => {});
 }
 
-// Ticker and countdown are reused (not fire-and-forget) so they can be cut
-// off immediately instead of ringing out on their own after their screen ends.
-const tickerAudio = new Audio(SOUNDS.ticker);
-const countdownAudio = new Audio(SOUNDS.countdown);
-
-function playTicker() {
-  tickerAudio.currentTime = 0;
-  tickerAudio.play().catch(() => {});
+function request(event, data, done) {
+  if (pending || !socket.connected) return;
+  pending = true;
+  message = "";
+  updateStatus();
+  socket.timeout(8000).emit(event, data, (error, response) => {
+    pending = false;
+    if (error || !response?.ok) message = response?.message ?? "The server did not respond. Try again.";
+    done?.(response);
+    updateStatus();
+  });
 }
 
-function stopTicker() {
-  tickerAudio.pause();
-  tickerAudio.currentTime = 0;
+function enter(type) {
+  request("enter-room", { ...entry, type, ...(type === "resume" ? session : {}) }, (response) => {
+    if (response?.ok) {
+      saveSession({ code: response.code, token: response.token });
+      updateRoomUrl(response.code);
+    } else if (type === "resume" && response) {
+      resetRoom(message);
+    }
+  });
 }
 
-function playCountdownSound() {
-  countdownAudio.currentTime = 0;
-  countdownAudio.play().catch(() => {});
+function action(type, details) {
+  request("game-action", { type, revision: room.revision, ...details });
 }
 
-function stopCountdownSound() {
-  countdownAudio.pause();
-  countdownAudio.currentTime = 0;
+function resetRoom(reason = "") {
+  saveSession(null);
+  updateRoomUrl(null);
+  room = settings = null;
+  entry.code = "";
+  mode = "home";
+  message = reason;
+  render();
 }
 
-// Delegated so it survives every re-render (app's innerHTML is replaced, app itself isn't).
-// Buttons that already play a more specific sound (judge Correct/Wrong) opt out via data-silent.
-app.addEventListener("click", (e) => {
-  const btn = e.target.closest(".btn");
-  if (btn && !btn.dataset.silent) playSound("button");
+socket.on("connect", () => {
+  message = "";
+  if (session) enter("resume");
+  updateStatus();
+});
+socket.on("disconnect", () => updateStatus());
+socket.on("room-closed", resetRoom);
+socket.on("room-state", (state) => {
+  const previous = room;
+  room = state;
+  localDeadline = room.deadline ? performance.now() + room.deadline - room.serverTime : 0;
+  if (room.phase === "lobby" && !settings) settings = structuredClone(room.settings);
+  if (room.phase !== "lobby") settings = null;
+  if (previous && previous.revision !== room.revision) playSound(room.feedback);
+  if (previous && previous.phase !== room.phase) {
+    if (room.phase === "countdown") playSound("countdown");
+    if (room.phase === "results") playSound("results");
+  }
+  render();
 });
 
-const state = {
-  screen: "loading",
-  loadError: null,
-  lists: [],       // [{id, label, nouns:[...]}]
-  players: [],      // [{name, score}]
-  selectedListIds: new Set(),
-  studySeconds: 30,
-  answerSeconds: 5,
-  describeSeconds: 20,
-  memorize: null,   // {pages, pageIndex, timeLeft, timerId}
-  play: null,       // {pool, turnIndex, phase, timeLeft, timerId} — round 1
-  memory: null,     // {cards, firstIndex, secondIndex, busy, turnIndex, matchesFound, totalPairs} — round 2
-  taboo: null,      // {pool, turnIndex, phase, timeUp, timeLeft, timerId} — round 3
-};
-
-const MIN_PLAYERS = 3; // round 3 (Taboo) needs a speaker plus at least 2 guessers
-
-// ---------- data loading ----------
-
-// Image filenames follow a fixed convention (no per-noun lookup table):
-// take the first name before "/", lowercase it, replace spaces with "-".
-function imageSlug(english) {
-  const first = english.split("/")[0].trim();
-  return first
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/\s+/g, "-");
-}
-
-function slugifyLabel(label) {
-  return label
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-");
-}
-
-function parseNouns(text) {
-  const lines = text.split(/\r?\n/);
-  const lists = [];
-  let current = null;
-  let order = 0;
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-
-    const heading = line.match(/^##\s*(.+)$/);
-    if (heading) {
-      const label = heading[1].replace(/^List\s+\d+\s*[—-]\s*/i, "").trim();
-      current = { id: slugifyLabel(label), label, nouns: [] };
-      lists.push(current);
-      continue;
-    }
-
-    if (!current || !line.startsWith("|")) continue;
-
-    let cells = line.split("|").map((c) => c.trim());
-    if (cells[0] === "") cells.shift();
-    if (cells[cells.length - 1] === "") cells.pop();
-    if (cells.length < 3) continue;
-    if (cells[0].toLowerCase() === "english") continue; // header row
-    if (cells.every((c) => /^:?-+:?$/.test(c))) continue; // separator row
-
-    const [english, chinese, pinyin] = cells;
-    const slug = imageSlug(english);
-    current.nouns.push({
-      english,
-      chinese,
-      pinyin,
-      listId: current.id,
-      listLabel: current.label,
-      image: `assets/images/${slug}.png`,
-      order: order++,
-    });
-  }
-
-  return lists;
-}
-
-async function loadNouns() {
+async function loadLists() {
+  listsFailed = false;
   try {
-    const res = await fetch("nouns.txt");
-    if (!res.ok) throw new Error(`Could not load nouns.txt (${res.status})`);
-    const text = await res.text();
-    state.lists = parseNouns(text);
-    state.screen = "setup";
-  } catch (err) {
-    state.loadError = err.message || String(err);
-    state.screen = "load-error";
+    const response = await fetch("/api/lists");
+    if (!response.ok) throw new Error("Could not load word lists");
+    lists = await response.json();
+  } catch {
+    listsFailed = true;
   }
-  render();
+  if (room?.phase === "lobby" && isHost()) render();
 }
 
-// ---------- helpers ----------
+function heading() {
+  return `<header class="home-banner"><h1 class="title">Chinese Nouns Game</h1><span class="cn-seal" lang="zh">中文</span></header>`;
+}
 
-function shuffled(arr) {
-  const copy = arr.slice();
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+function woodPanel(content) {
+  return `<div class="wood-panel">
+    <div class="wood-corner tl"></div><div class="wood-corner tr"></div>
+    <div class="wood-corner bl"></div><div class="wood-corner br"></div>
+    <div class="card-panel setup-grid">${content}</div>
+  </div>`;
+}
+
+function button(label, type, style = "primary", attributes = "") {
+  return `<button type="button" class="btn btn-${style}" data-action="${type}" ${attributes}>${label}</button>`;
+}
+
+function renderEntry() {
+  if (session) {
+    return `${heading()}<div class="card-panel entry-panel">
+      <h2>Rejoining room ${escapeHtml(session.code)}…</h2>
+      ${button("Back to home", "reset", "ghost")}
+    </div>`;
   }
-  return copy;
+
+  if (mode === "home") {
+    return `${heading()}${woodPanel(`
+      <div class="room-intro">
+        <h2>Play Mandarin together</h2>
+        <p>Study everyday words and play three rounds with 3–8 people. Everyone uses their own device.</p>
+      </div>
+      <div class="room-actions">${button("Host a game", "show-create")}${button("Join a game", "show-join", "ghost")}</div>
+    `)}`;
+  }
+
+  const joining = mode === "join";
+  return `${heading()}${woodPanel(`
+    <h2>${joining ? "Join a game" : "Host a game"}</h2>
+    <form id="entry-form" class="entry-form">
+      <label for="player-name">Your name</label>
+      <input id="player-name" name="name" required maxlength="24" autocomplete="nickname" value="${escapeHtml(entry.name)}">
+      ${joining ? `<label for="room-code">Room code</label>
+        <input id="room-code" name="code" required minlength="6" maxlength="6" pattern="[A-Za-z2-9]{6}"
+          autocapitalize="characters" spellcheck="false" autocomplete="off" value="${escapeHtml(entry.code)}">` : ""}
+      <button class="btn btn-primary" data-network type="submit">${joining ? "Join room" : "Create room"}</button>
+      ${button("Back", "home", "ghost")}
+    </form>
+  `)}`;
 }
 
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
+function inviteUrl() {
+  const url = new URL("/", location.origin);
+  url.searchParams.set("room", room.code);
+  return url.href;
 }
 
-function allSelectedNouns() {
-  return state.lists
-    .filter((l) => state.selectedListIds.has(l.id))
-    .flatMap((l) => l.nouns);
+function playerList() {
+  return `<ul class="player-list">${room.players.map((player) => `
+    <li><span><strong>${escapeHtml(player.name)}</strong>
+      ${player.id === room.hostId ? '<small class="player-role">Host</small>' : ""}
+      ${player.id === room.selfId ? '<small class="player-role">You</small>' : ""}
+    </span>
+    ${player.online ? "" : `<small>Disconnected</small>
+      ${isHost() ? button("Remove", "remove-player", "ghost", `data-player="${player.id}" data-network`) : ""}`}
+    </li>`).join("")}</ul>`;
 }
 
-function el(html) {
-  const t = document.createElement("template");
-  t.innerHTML = html.trim();
-  return t.content.firstElementChild;
+function settingsPanel() {
+  if (listsFailed) return `<div class="card-panel setup-grid"><p>Couldn’t load the word lists.</p>${button("Try again", "retry-lists")}</div>`;
+  if (!lists.length) return '<div class="card-panel"><p>Loading word lists…</p></div>';
+
+  const timers = [
+    ["studySeconds", "Study time per page", 10, 90, 5],
+    ["answerSeconds", "Picture answer time", 3, 15, 1],
+    ["describeSeconds", "Taboo speaking time", 10, 45, 5],
+  ];
+
+  return `<section class="card-panel setup-grid">
+    <h2>Game settings</h2>
+    <fieldset class="word-lists"><legend class="field-label">Word lists</legend>
+      <div class="list-options">${lists.map(({ id, count, label }) => `
+        <label class="list-option">
+          <input type="checkbox" value="${id}" ${settings.listIds.includes(id) ? "checked" : ""}>
+          <span class="list-icon" aria-hidden="true">${listIcons[id] ?? "📖"}</span>
+          <span>${escapeHtml(label)}<br><small>${count} words</small></span>
+        </label>`).join("")}</div>
+    </fieldset>
+    <div class="timers-grid">${timers.map(([id, label, min, max, step]) => `
+      <div class="timer-field">
+        <label for="${id}">${label}</label>
+        <output class="value" for="${id}">${settings[id]}s</output>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${settings[id]}">
+      </div>`).join("")}
+    </div>
+    <p id="start-hint" class="answer-hint"></p>
+    ${button("Start game", "start", "primary", "data-network")}
+  </section>`;
 }
 
-// ---------- render dispatcher ----------
+function renderLobby() {
+  return `${heading()}
+    <div class="lobby-grid ${isHost() ? "host-lobby" : ""}">
+      ${isHost() ? `<section class="card-panel invite-panel">
+        <h2>Invite players</h2>
+        <div class="room-code" aria-label="Room code ${room.code.split("").join(" ")}">${room.code}</div>
+        <img class="invite-qr" src="/api/rooms/${room.code}/qr" alt="Scan to join room ${room.code}" width="160" height="160">
+        <p>Scan the QR code or enter the code on the game’s home page.</p>
+        ${button("Copy invite link", "copy", "ghost")}
+        <input class="invite-link" aria-label="Invite link" value="${escapeHtml(inviteUrl())}" readonly hidden>
+      </section>` : ""}
+      <section class="card-panel roster-panel">
+        <h2>Room ${room.code}</h2>
+        <p class="field-label">Players (${room.players.length}/8)</p>
+        ${playerList()}
+        ${isHost() ? "" : "<p>Waiting for the host to start.</p>"}
+      </section>
+      ${isHost() ? settingsPanel() : ""}
+    </div>
+    <p class="voice-note">Speak aloud during the game. If you’re playing remotely, join a voice call together.</p>`;
+}
+
+function timer() {
+  return room.deadline ? '<div class="ring" aria-label="Time remaining"><span data-time></span></div>' : "";
+}
+
+function nounText(noun) {
+  return `<div class="cn" lang="zh">${escapeHtml(noun.chinese)}</div>
+    <div class="py">${escapeHtml(noun.pinyin)}</div><div class="en">${escapeHtml(noun.english)}</div>`;
+}
+
+function renderStudy() {
+  return `<div class="memorize-header"><h2>Study the words</h2>
+    <span class="page-indicator">Page ${room.page} of ${room.pages}</span>${timer()}</div>
+    <div class="noun-grid">${room.nouns.map((noun, index) => `
+      <article class="noun-card" style="background:var(--${colors[index]})">
+        <div class="noun-img"><img src="${escapeHtml(noun.image)}" alt=""></div>
+        <div class="noun-text">${nounText(noun)}</div>
+      </article>`).join("")}</div>
+    ${isHost() ? button("Skip to round 1", "skip-study", "ghost", "data-network") : ""}`;
+}
+
+function scores() {
+  return `<div class="score-row" aria-label="Scores">${room.players.map((p) => `
+    <span class="score-chip ${p.id === room.activeId ? "active" : ""}">${escapeHtml(p.name)} ${p.score}</span>
+  `).join("")}</div>`;
+}
+
+function roundHeader(round, label, details = "") {
+  return `<h2 class="round-badge">${round}</h2>
+    <div class="play-header"><span class="turn-label">${label}</span>${timer()}${details}</div>`;
+}
+
+function wordCard(noun, includeImage = false) {
+  return `<div class="prompt-card prompt-answer">
+    ${includeImage ? `<img src="${escapeHtml(noun.image)}" alt="">` : ""}
+    ${nounText(noun)}
+  </div>`;
+}
+
+function renderPicture(active) {
+  const revealed = room.phase === "picture-answer";
+  return `${roundHeader("Round 1 · Guess the Picture", isMyTurn() ? "Your turn" : `${active}’s turn`)}
+    <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
+    ${revealed ? wordCard(room.prompt) : `<div class="prompt-card"><img src="${escapeHtml(room.prompt.image)}" alt="Object to guess"></div>`}
+    <p class="answer-hint">${revealed ? "Time’s up." : isMyTurn() ? "Say the Mandarin name out loud." : `Listen to ${active}’s answer.`}
+      ${isHost() ? "Mark the spoken answer below." : ""}</p>
+    ${isHost() ? `<div class="judge-buttons">
+      ${button("Correct", "picture-correct", "success", "data-network")}
+      ${button("Incorrect", "picture-wrong", "error", "data-network")}
+    </div>` : ""}
+    ${scores()}`;
+}
+
+function renderMemory(active) {
+  const canFlip = isMyTurn() && room.phase === "memory";
+  const current = room.players.find((p) => p.id === room.activeId);
+  const columns = room.cards.length <= 20 ? 5 : 8;
+  return `${roundHeader("Round 2 · Memory Match", isMyTurn() ? "Your turn" : `${active}’s turn`,
+    `<span class="pairs-badge">${room.matches}/${room.cards.length / 2} pairs</span>`)}
+    <div class="online-memory" style="--columns:${columns}">${room.cards.map(({ face, value, matched }, index) => {
+      const hidden = face === "hidden";
+      const content = hidden ? "?" : face === "image"
+        ? `<img src="${escapeHtml(value)}" alt="${escapeHtml(value.split("/").pop().replace(/\.png$/, "").replaceAll("-", " "))}">`
+        : `<span class="memory-${face}" ${face === "chinese" ? 'lang="zh"' : ""}>${escapeHtml(value)}</span>`;
+      return `<button type="button" class="online-card ${hidden ? "face-down" : ""} ${matched ? "is-matched" : ""}"
+        data-action="flip" data-index="${index}" data-network ${!hidden || !canFlip ? "data-locked" : ""}
+        ${hidden ? `aria-label="Card ${index + 1}, face down"` : ""}>${content}</button>`;
+    }).join("")}</div>
+    <p class="answer-hint">${current.online ? "Pair a Chinese word with its picture or English meaning." : `${active} is disconnected.`}</p>
+    ${isHost() && !current.online && room.phase === "memory" ? button("Pass turn", "pass-memory", "ghost", "data-network") : ""}
+    ${scores()}`;
+}
+
+function renderTaboo(active) {
+  const mine = isMyTurn();
+  const speaker = room.players.find((p) => p.id === room.activeId);
+  const speaking = room.phase === "taboo-speak" || room.phase === "taboo-answer";
+  const help = {
+    "taboo-ready": mine ? "Open your secret word when you’re ready." : `Waiting for ${active} to get ready.`,
+    "taboo-secret": mine ? "Describe this in Mandarin without saying the word itself." : `${active} is reading the secret word.`,
+    "taboo-speak": mine ? "Describe the word in Mandarin." : "Guess the Mandarin word out loud.",
+    "taboo-answer": "Time’s up. The host records who guessed it.",
+  };
+  return `${roundHeader("Round 3 · Taboo", mine ? "You’re the speaker" : `${active} is the speaker`)}
+    <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
+    ${room.prompt ? wordCard(room.prompt, room.phase === "taboo-secret") : ""}
+    <p class="answer-hint">${help[room.phase]}</p>
+    ${room.phase === "taboo-ready" && mine ? button("Reveal my word", "reveal-taboo", "primary", "data-network") : ""}
+    ${room.phase === "taboo-secret" && mine ? button("Hide word and start timer", "start-taboo", "primary", "data-network") : ""}
+    ${isHost() && (speaking || !speaker.online) ? `<div class="guess-buttons">
+      ${speaking ? room.players.filter((p) => p.id !== room.activeId).map((p) =>
+        button(`${escapeHtml(p.name)} guessed it`, "award-taboo", "success", `data-player="${p.id}" data-network`)).join("") : ""}
+      ${button(speaking ? "No one guessed" : "Pass turn", "pass-taboo", "error", "data-network")}
+    </div>` : ""}
+    ${scores()}`;
+}
+
+function renderTally() {
+  const ranked = room.players.slice().sort((a, b) => b.score - a.score);
+  const best = ranked[0].score;
+  const leaders = ranked.filter((p) => p.score === best).map((p) => p.name);
+  const final = room.phase === "results";
+  const round = room.phase === "picture-tally" ? 1 : 2;
+  const result = final ? "finished first" : leaders.length === 1 ? "leads" : "share the lead";
+  return `<h2 class="round-badge">${final ? "Final results" : `Round ${round} complete`}</h2>
+    <div class="trophy" aria-hidden="true">${final ? "🏆" : "📊"}</div>
+    <p class="winner-line">${escapeHtml(leaders.join(" and "))} ${result} with ${best} ${best === 1 ? "point" : "points"}.</p>
+    <ol class="leaderboard">${ranked.map((p) => `
+      <li class="leader-row ${p.score === best ? "leader-row-top" : ""}">
+        <span class="leader-name">${escapeHtml(p.name)}</span>
+        <div class="leader-bar-track" aria-hidden="true"><div class="leader-bar-fill" style="width:${best ? p.score / best * 100 : 0}%"></div></div>
+        <span class="leader-score">${p.score}</span>
+      </li>`).join("")}</ol>
+    ${isHost() ? final ? button("Return to lobby", "lobby", "primary", "data-network")
+      : button(`Continue to round ${round + 1}`, "continue", "primary", "data-network")
+      : '<p class="answer-hint">Waiting for the host to continue.</p>'}`;
+}
+
+function renderGame() {
+  const active = escapeHtml(room.players.find((p) => p.id === room.activeId)?.name ?? "");
+  switch (room.phase) {
+    case "study": return renderStudy();
+    case "countdown":
+      return `<h2 class="round-badge">${roundNames[room.next]}</h2><p class="countdown-number" data-time></p>`;
+    case "picture":
+    case "picture-answer": return renderPicture(active);
+    case "memory":
+    case "memory-miss": return renderMemory(active);
+    case "taboo-ready":
+    case "taboo-secret":
+    case "taboo-speak":
+    case "taboo-answer": return renderTaboo(active);
+    default: return renderTally();
+  }
+}
 
 function render() {
-  document.body.classList.toggle("bg-vivid", state.screen === "setup");
-  app.innerHTML = "";
-  if (state.screen === "loading") app.appendChild(renderLoading());
-  else if (state.screen === "load-error") app.appendChild(renderLoadError());
-  else if (state.screen === "setup") app.appendChild(renderSetup());
-  else if (state.screen === "memorize") app.appendChild(renderMemorize());
-  else if (state.screen === "countdown") app.appendChild(renderCountdown());
-  else if (state.screen === "play") app.appendChild(renderPlay());
-  else if (state.screen === "round1-tally") app.appendChild(renderRound1Tally());
-  else if (state.screen === "memory") app.appendChild(renderMemory());
-  else if (state.screen === "round2-tally") app.appendChild(renderRound2Tally());
-  else if (state.screen === "taboo") app.appendChild(renderTaboo());
-  else if (state.screen === "results") app.appendChild(renderResults());
+  document.body.classList.toggle("bg-vivid", !room);
+  const memory = room?.phase.startsWith("memory") && room.cards;
+  app.innerHTML = `<main class="screen ${memory ? "screen-wide" : ""} ${!room ? "entry-screen" : ""}">
+    ${room ? room.phase === "lobby" ? renderLobby() : renderGame() : renderEntry()}
+    <p class="connection-status" role="status" hidden></p>
+    <p class="room-error" role="alert" hidden></p>
+    ${room ? button(isHost() ? "Close room" : "Leave room", "leave", "ghost", "data-network") : ""}
+  </main>`;
+  updateStatus();
+  updateTimer();
 }
 
-function renderLoading() {
-  return el(`<div class="screen"><h1 class="title">Loading nouns…</h1></div>`);
+function updateStatus() {
+  const online = socket.connected;
+  const status = app.querySelector(".connection-status");
+  const error = app.querySelector(".room-error");
+  if (!status) return;
+  status.textContent = !online ? (session ? "Connection lost. Reconnecting…" : "Connecting to the game server…")
+    : room && !room.players.find((player) => player.id === room.hostId).online ? "The host is disconnected." : "";
+  status.hidden = !status.textContent;
+  error.textContent = message;
+  error.hidden = !message;
+  app.querySelectorAll("[data-network]").forEach((control) => {
+    control.disabled = !online || pending || control.hasAttribute("data-locked");
+  });
+  updateStart();
 }
 
-function renderLoadError() {
-  return el(`
-    <div class="screen">
-      <h1 class="title">Chinese Nouns Game</h1>
-      <div class="card-panel">
-        <p><strong>Could not load nouns.txt.</strong></p>
-        <p>${state.loadError}</p>
-        <p class="answer-hint">This page needs to be served over http(s), not opened directly as a file.
-        From this folder, run <code>npx serve .</code> (or <code>python -m http.server</code>) and open the printed link.</p>
-      </div>
-    </div>
-  `);
+function updateStart() {
+  const start = app.querySelector('[data-action="start"]');
+  if (!start) return;
+  const selected = lists.filter((list) => settings.listIds.includes(list.id)).reduce((sum, list) => sum + list.count, 0);
+  const size = room.players.length;
+  const turns = Math.floor(selected / size);
+  const allOnline = room.players.every((player) => player.online);
+  start.disabled = !socket.connected || pending || !allOnline || size < 3 || !turns;
+  app.querySelector("#start-hint").textContent = size < 3 ? "Invite at least three players, including the host."
+    : !allOnline ? "Wait for disconnected players to return or remove them."
+      : !turns ? "Choose enough words for everyone to take a turn." : `${turns} picture and Taboo turns per player.`;
 }
 
-// ---------- setup screen ----------
+function updateTimer() {
+  const time = app.querySelector("[data-time]");
+  if (!time || !localDeadline) return;
+  const remaining = Math.max(0, localDeadline - performance.now());
+  const seconds = Math.ceil(remaining / 1000);
+  time.textContent = room.phase === "countdown" ? (seconds || "Go!") : `${seconds}s`;
+  time.closest(".ring")?.style.setProperty("--pct", remaining / room.duration);
+}
 
-function renderSetup() {
-  if (state.players.length === 0) {
-    state.players = [{ name: "", score: 0 }, { name: "", score: 0 }, { name: "", score: 0 }];
+app.addEventListener("submit", (event) => {
+  if (event.target.id !== "entry-form") return;
+  event.preventDefault();
+  enter(mode);
+});
+
+app.addEventListener("input", (event) => {
+  const control = event.target;
+  if (control.closest("#entry-form")) entry[control.name] = control.value;
+  if (control.matches('.timer-field input[type="range"]')) {
+    settings[control.id] = Number(control.value);
+    control.previousElementSibling.value = `${control.value}s`;
   }
-
-  const wrap = el(`<div class="screen"></div>`);
-  wrap.appendChild(el(`
-    <div class="home-banner">
-      <h1 class="title">Chinese Nouns Game</h1>
-      <span class="cn-seal">中文</span>
-    </div>
-  `));
-  wrap.appendChild(el(`<p class="subtitle banner-subtitle">Study together, then play three rounds — guess the picture, match the pairs, then describe &amp; guess.</p>`));
-
-  const woodPanel = el(`
-    <div class="wood-panel">
-      <div class="wood-corner tl"></div>
-      <div class="wood-corner tr"></div>
-      <div class="wood-corner bl"></div>
-      <div class="wood-corner br"></div>
-    </div>
-  `);
-  const panel = el(`<div class="card-panel setup-grid"></div>`);
-  woodPanel.appendChild(panel);
-
-  // players count
-  const stepper = el(`
-    <div style="text-align:center">
-      <span class="field-label">👥 How many players?</span>
-      <div class="stepper">
-        <button class="btn btn-step" id="dec-player" type="button">−</button>
-        <span class="stepper-value">${state.players.length}</span>
-        <button class="btn btn-step" id="inc-player" type="button">+</button>
-      </div>
-      <p class="answer-hint" style="margin-top:0.4rem">Round 3 (Taboo) needs at least ${MIN_PLAYERS} players.</p>
-    </div>
-  `);
-  stepper.querySelector("#dec-player").onclick = () => {
-    if (state.players.length > MIN_PLAYERS) {
-      state.players.pop();
-      render();
-    }
-  };
-  stepper.querySelector("#inc-player").onclick = () => {
-    if (state.players.length < 8) {
-      state.players.push({ name: "", score: 0 });
-      render();
-    }
-  };
-  panel.appendChild(stepper);
-
-  // player names
-  const namesWrap = el(`<div><span class="field-label">🧑 Player names</span><div class="player-names"></div></div>`);
-  const namesGrid = namesWrap.querySelector(".player-names");
-  state.players.forEach((p, i) => {
-    const input = el(`<input type="text" placeholder="Player ${i + 1}" value="${p.name.replace(/"/g, "&quot;")}">`);
-    input.oninput = (e) => (state.players[i].name = e.target.value);
-    namesGrid.appendChild(input);
-  });
-  panel.appendChild(namesWrap);
-
-  // list selection
-  const listsWrap = el(`<div><span class="field-label">📖 Which lists?</span><div class="list-options"></div></div>`);
-  const listsGrid = listsWrap.querySelector(".list-options");
-  state.lists.forEach((l) => {
-    const opt = el(`
-      <label class="list-option">
-        <input type="checkbox" ${state.selectedListIds.has(l.id) ? "checked" : ""}>
-        <span class="list-check">✓</span>
-        <span class="list-icon">${listIcon(l.id)}</span>
-        <span>${l.label}<br>(${l.nouns.length})</span>
-      </label>
-    `);
-    opt.querySelector("input").onchange = (e) => {
-      if (e.target.checked) state.selectedListIds.add(l.id);
-      else state.selectedListIds.delete(l.id);
-      render();
-    };
-    listsGrid.appendChild(opt);
-  });
-  panel.appendChild(listsWrap);
-
-  // timers
-  const timers = el(`
-    <div class="timers-grid">
-      <div class="timer-field">
-        <label>🕐 Study time per page (seconds)</label>
-        <div class="value" id="study-value">${state.studySeconds}s</div>
-        <input type="range" min="10" max="90" step="5" value="${state.studySeconds}" id="study-range">
-      </div>
-      <div class="timer-field">
-        <label>⚡ Answer time (seconds)</label>
-        <div class="value" id="answer-value">${state.answerSeconds}s</div>
-        <input type="range" min="3" max="15" step="1" value="${state.answerSeconds}" id="answer-range">
-      </div>
-      <div class="timer-field">
-        <label>🗣️ Describe time (seconds)</label>
-        <div class="value" id="describe-value">${state.describeSeconds}s</div>
-        <input type="range" min="10" max="45" step="5" value="${state.describeSeconds}" id="describe-range">
-      </div>
-    </div>
-  `);
-  timers.querySelector("#study-range").oninput = (e) => {
-    state.studySeconds = Number(e.target.value);
-    timers.querySelector("#study-value").textContent = `${state.studySeconds}s`;
-  };
-  timers.querySelector("#answer-range").oninput = (e) => {
-    state.answerSeconds = Number(e.target.value);
-    timers.querySelector("#answer-value").textContent = `${state.answerSeconds}s`;
-  };
-  timers.querySelector("#describe-range").oninput = (e) => {
-    state.describeSeconds = Number(e.target.value);
-    timers.querySelector("#describe-value").textContent = `${state.describeSeconds}s`;
-  };
-  panel.appendChild(timers);
-
-  const selectedCount = allSelectedNouns().length;
-  const numPlayers = state.players.length;
-  const totalTurns = Math.floor(selectedCount / numPlayers) * numPlayers;
-
-  if (totalTurns === 0) {
-    const errorText =
-      selectedCount === 0
-        ? "Pick at least 1 list below so every player gets a turn."
-        : `Pick at least ${numPlayers} noun(s) across your selected lists so every player gets a turn.`;
-    panel.appendChild(el(`<div class="setup-error">${errorText}</div>`));
-  } else {
-    panel.appendChild(el(`<p class="answer-hint">🎲 ${totalTurns} turns total — ${totalTurns / numPlayers} per player.</p>`));
+  if (control.matches('.list-option input[type="checkbox"]')) {
+    settings.listIds = [...app.querySelectorAll(".list-option input:checked")].map((input) => input.value);
+    updateStart();
   }
+});
 
-  const playBtn = el(`<button class="btn btn-primary btn-lg btn-block">▶ Play Game</button>`);
-  playBtn.disabled = totalTurns === 0;
-  playBtn.onclick = () => startGame();
-  panel.appendChild(playBtn);
+document.addEventListener("keydown", (event) => {
+  if (!room || !isHost() || !["picture", "picture-answer"].includes(room.phase)) return;
+  if (event.repeat || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  action("judge-picture", { correct: event.key === "ArrowRight" });
+});
 
-  wrap.appendChild(woodPanel);
-  return wrap;
-}
-
-function startGame() {
-  state.players.forEach((p, i) => {
-    if (!p.name.trim()) p.name = `Player ${i + 1}`;
-    p.score = 0;
-  });
-  state.memory = null;
-  state.taboo = null;
-
-  const selected = allSelectedNouns();
-  const numPlayers = state.players.length;
-  const totalTurns = Math.floor(selected.length / numPlayers) * numPlayers;
-  const pool = shuffled(selected).slice(0, totalTurns);
-
-  const studyOrder = pool.slice().sort((a, b) => a.order - b.order);
-  const pages = chunk(studyOrder, 10);
-
-  state.memorize = { pages, pageIndex: 0, timeLeft: state.studySeconds, timerId: null, pool };
-  state.screen = "memorize";
-  render();
-  startMemorizeTimer();
-}
-
-// ---------- memorize screen ----------
-
-function startMemorizeTimer() {
-  const m = state.memorize;
-  clearInterval(m.timerId);
-  m.timerId = setInterval(() => {
-    playTicker();
-    m.timeLeft -= 1;
-    if (m.timeLeft <= 0) {
-      stopTicker();
-      if (m.pageIndex < m.pages.length - 1) {
-        m.pageIndex += 1;
-        m.timeLeft = state.studySeconds;
-        render();
-      } else {
-        clearInterval(m.timerId);
-        beginCountdown(() => beginPlay(m.pool));
-      }
-    } else {
-      render();
-    }
-  }, 1000);
-}
-
-const CARD_COLORS = ["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"];
-
-const LIST_ICONS = {
-  "tools": "🔧",
-  "in-the-kitchen": "🍳",
-  "furniture": "🪑",
-  "bathroom": "🛁",
-  "cleaning": "🧹",
-};
-function listIcon(id) {
-  return LIST_ICONS[id] || "📚";
-}
-
-function renderMemorize() {
-  const m = state.memorize;
-  const page = m.pages[m.pageIndex];
-  const pct = m.timeLeft / state.studySeconds;
-
-  const wrap = el(`<div class="screen"></div>`);
-  const header = el(`
-    <div class="memorize-header">
-      <span class="page-indicator">Page ${m.pageIndex + 1} of ${m.pages.length}</span>
-      <div class="ring" style="--pct:${pct}"><span>${m.timeLeft}s</span></div>
-    </div>
-  `);
-  wrap.appendChild(header);
-
-  const grid = el(`<div class="noun-grid"></div>`);
-  page.forEach((n, i) => {
-    const card = el(`
-      <div class="noun-card" style="background:var(--${CARD_COLORS[i % CARD_COLORS.length]})">
-        <div class="noun-img"><img src="${n.image}" alt="" draggable="false"></div>
-        <div class="noun-text">
-          <div class="cn">${n.chinese}</div>
-          <div class="py">${n.pinyin}</div>
-          <div class="en">${n.english}</div>
-        </div>
-      </div>
-    `);
-    const img = card.querySelector("img");
-    img.onerror = () => (img.closest(".noun-img").style.display = "none");
-    grid.appendChild(card);
-  });
-  wrap.appendChild(grid);
-
-  const skip = el(`<button class="btn btn-ghost">Skip to play →</button>`);
-  skip.onclick = () => {
-    clearInterval(m.timerId);
-    stopTicker();
-    beginCountdown(() => beginPlay(m.pool));
-  };
-  wrap.appendChild(skip);
-
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- countdown screen ----------
-
-const COUNTDOWN_START = 3;
-
-function beginCountdown(onDone) {
-  state.screen = "countdown";
-  state.countdown = { label: String(COUNTDOWN_START) };
-  render();
-  playCountdownSound();
-  runCountdownStep(COUNTDOWN_START, onDone);
-}
-
-function runCountdownStep(n, onDone) {
-  setTimeout(() => {
-    if (n > 1) {
-      state.countdown.label = String(n - 1);
-      render();
-      runCountdownStep(n - 1, onDone);
-    } else {
-      state.countdown.label = "Let's Start!";
-      render();
-      setTimeout(() => {
-        stopCountdownSound();
-        onDone();
-      }, 700);
-    }
-  }, 1000);
-}
-
-function renderCountdown() {
-  const wrap = el(`
-    <div class="screen countdown-screen">
-      <div class="countdown-number">${state.countdown.label}</div>
-    </div>
-  `);
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- play screen ----------
-
-function beginPlay(pool) {
-  state.play = {
-    pool: shuffled(pool),
-    turnIndex: 0,
-    phase: "question", // "question" | "revealed"
-    timeLeft: state.answerSeconds,
-    timerId: null,
-  };
-  state.screen = "play";
-  render();
-  startPlayTimer();
-  document.addEventListener("keydown", handlePlayKeydown);
-}
-
-function startPlayTimer() {
-  const p = state.play;
-  clearInterval(p.timerId);
-  p.timerId = setInterval(() => {
-    playTicker();
-    p.timeLeft -= 1;
-    if (p.timeLeft <= 0) {
-      clearInterval(p.timerId);
-      stopTicker();
-      p.phase = "revealed";
-    }
-    render();
-  }, 1000);
-}
-
-function handlePlayKeydown(e) {
-  if (state.screen !== "play") return;
-  if (e.key === "ArrowRight") judge(true);
-  else if (e.key === "ArrowLeft") judge(false);
-}
-
-function judge(correct) {
-  stopTicker();
-  playSound(correct ? "correct" : "wrong");
-
-  const p = state.play;
-  const currentPlayer = state.players[p.turnIndex % state.players.length];
-  if (correct) currentPlayer.score += 1;
-
-  clearInterval(p.timerId);
-  p.turnIndex += 1;
-
-  if (p.turnIndex >= p.pool.length) {
-    document.removeEventListener("keydown", handlePlayKeydown);
-    state.screen = "round1-tally";
-    render();
-    return;
-  }
-
-  p.phase = "question";
-  p.timeLeft = state.answerSeconds;
-  render();
-  startPlayTimer();
-}
-
-function renderPlay() {
-  const p = state.play;
-  const noun = p.pool[p.turnIndex];
-  const currentPlayerIndex = p.turnIndex % state.players.length;
-  const currentPlayer = state.players[currentPlayerIndex];
-  const flipped = p.phase === "revealed";
-  const pct = p.timeLeft / state.answerSeconds;
-
-  const wrap = el(`<div class="screen"></div>`);
-  wrap.appendChild(el(`<span class="round-badge">Round 1 · Guess the Picture</span>`));
-  wrap.appendChild(el(`
-    <div class="play-header">
-      <span class="turn-label">${currentPlayer.name}'s turn — Turn ${p.turnIndex + 1}/${p.pool.length}</span>
-      <div class="ring" style="--pct:${Math.max(pct, 0)}"><span>${Math.max(p.timeLeft, 0)}s</span></div>
-    </div>
-  `));
-
-  const scene = el(`
-    <div class="flip-scene">
-      <div class="flip-card ${flipped ? "flipped" : ""}">
-        <div class="flip-face flip-front">
-          <img src="${noun.image}" alt="" draggable="false">
-        </div>
-        <div class="flip-face flip-back">
-          <div class="cn">${noun.chinese}</div>
-          <div class="py">${noun.pinyin}</div>
-          <div class="en">${noun.english}</div>
-        </div>
-      </div>
-    </div>
-  `);
-  const img = scene.querySelector("img");
-  img.onerror = () => {
-    const front = scene.querySelector(".flip-front");
-    front.innerHTML = `<div class="placeholder">${noun.chinese}<br>${noun.pinyin}</div>`;
-  };
-  wrap.appendChild(scene);
-
-  wrap.appendChild(el(`<p class="answer-hint">Say the Chinese name out loud — the judge scores it below.</p>`));
-
-  const buttons = el(`
-    <div class="judge-buttons">
-      <button class="btn btn-success btn-lg" id="btn-correct" data-silent="true">✅ Correct</button>
-      <button class="btn btn-error btn-lg" id="btn-wrong" data-silent="true">❌ Wrong</button>
-    </div>
-  `);
-  buttons.querySelector("#btn-correct").onclick = () => judge(true);
-  buttons.querySelector("#btn-wrong").onclick = () => judge(false);
-  wrap.appendChild(buttons);
-
-  const scores = el(`<div class="score-row"></div>`);
-  state.players.forEach((pl, i) => {
-    scores.appendChild(el(`<span class="score-chip ${i === currentPlayerIndex ? "active" : ""}">${pl.name} ${pl.score}</span>`));
-  });
-  wrap.appendChild(scores);
-
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- exit mid-game ----------
-
-function renderExitButton() {
-  const btn = el(`<button class="btn btn-ghost exit-btn">✕ Exit</button>`);
-  btn.onclick = () => {
-    if (!confirm("Exit the game? Current scores will be lost.")) return;
-    exitToSetup();
-  };
-  return btn;
-}
-
-function exitToSetup() {
-  if (state.memorize) clearInterval(state.memorize.timerId);
-  if (state.play) clearInterval(state.play.timerId);
-  if (state.taboo) clearInterval(state.taboo.timerId);
-  stopTicker();
-  stopCountdownSound();
-  document.removeEventListener("keydown", handlePlayKeydown);
-  state.memory = null;
-  state.taboo = null;
-  state.players = [];
-  state.screen = "setup";
-  render();
-}
-
-// ---------- shared scoreboard ----------
-
-function computeLeaders() {
-  const maxScore = Math.max(...state.players.map((p) => p.score));
-  const leaders = state.players.filter((p) => p.score === maxScore);
-  return { maxScore, leaders };
-}
-
-function renderLeaderboard() {
-  const { maxScore } = computeLeaders();
-  const ranked = state.players.slice().sort((a, b) => b.score - a.score);
-
-  const board = el(`<div class="leaderboard"></div>`);
-  ranked.forEach((p) => {
-    const width = maxScore > 0 ? Math.round((p.score / maxScore) * 100) : 0;
-    const isTop = maxScore > 0 && p.score === maxScore;
-    board.appendChild(el(`
-      <div class="leader-row ${isTop ? "leader-row-top" : ""}">
-        <span class="leader-name">${p.name}</span>
-        <div class="leader-bar-track"><div class="leader-bar-fill" style="width:${width}%"></div></div>
-        <span class="leader-score">${p.score}</span>
-      </div>
-    `));
-  });
-  return board;
-}
-
-// ---------- round 1 tally ----------
-
-function renderRound1Tally() {
-  const { maxScore, leaders } = computeLeaders();
-
-  const wrap = el(`<div class="screen"></div>`);
-  wrap.appendChild(el(`<span class="round-badge">Round 1 complete</span>`));
-  wrap.appendChild(el(`<div class="trophy">📊</div>`));
-
-  const line =
-    maxScore === 0
-      ? "No points yet — it's all to play for in round 2!"
-      : leaders.length === 1
-        ? `${leaders[0].name} is leading with ${maxScore} point${maxScore === 1 ? "" : "s"}!`
-        : `${leaders.map((l) => l.name).join(" and ")} are tied for the lead at ${maxScore} points!`;
-  wrap.appendChild(el(`<div class="winner-line">${line}</div>`));
-
-  wrap.appendChild(renderLeaderboard());
-
-  const cta = el(`<button class="btn btn-primary btn-lg">Continue to Round 2 →</button>`);
-  cta.onclick = () => beginCountdown(() => beginMemoryGame());
-  wrap.appendChild(cta);
-
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- round 2: memory match ----------
-
-const MAX_MEMORY_PAIRS = 20;
-
-function beginMemoryGame() {
-  const selected = allSelectedNouns();
-  const nouns = shuffled(selected).slice(0, Math.min(MAX_MEMORY_PAIRS, selected.length));
-  state.memory = {
-    cards: buildMemoryCards(nouns),
-    firstIndex: null,
-    secondIndex: null,
-    busy: false,
-    turnIndex: 0,
-    matchesFound: 0,
-    totalPairs: nouns.length,
-  };
-  state.screen = "memory";
-  render();
-}
-
-// Picks a landscape-ish rows/cols split for n cards (n is always even: 2 per pair).
-// e.g. 20 -> 5x4, 40 -> 8x5, matching how a physical card layout would be dealt.
-function gridDims(n) {
-  let best = null;
-  for (let rows = 1; rows <= n; rows++) {
-    if (n % rows !== 0) continue;
-    const cols = n / rows;
-    if (cols < rows) continue;
-    const score = Math.abs(cols / rows - 1.4);
-    if (!best || score < best.score) best = { cols, rows, score };
-  }
-  if (best) return { cols: best.cols, rows: best.rows };
-  const cols = Math.ceil(Math.sqrt(n * 1.4));
-  return { cols, rows: Math.ceil(n / cols) };
-}
-
-function buildMemoryCards(nouns) {
-  const cards = [];
-  nouns.forEach((noun, pairId) => {
-    const useImage = Math.random() < 0.5;
-    cards.push({ pairId, kind: "chinese", noun });
-    cards.push({ pairId, kind: useImage ? "image" : "english", noun });
-  });
-  return shuffled(cards).map((c) => ({ ...c, revealed: false, matched: false }));
-}
-
-function handleCardClick(idx) {
-  const g = state.memory;
-  if (!g || g.busy) return;
-  const card = g.cards[idx];
-  if (!card || card.matched || card.revealed) return;
-
-  card.revealed = true;
+app.addEventListener("click", async (event) => {
+  const control = event.target.closest("[data-action]");
+  if (!control) return;
+  const type = control.dataset.action;
   playSound("button");
-
-  if (g.firstIndex === null) {
-    g.firstIndex = idx;
-    render();
-    return;
-  }
-
-  g.secondIndex = idx;
-  g.busy = true;
-  render();
-
-  const first = g.cards[g.firstIndex];
-  const second = g.cards[g.secondIndex];
-  const isMatch = first.pairId === second.pairId;
-
-  setTimeout(() => {
-    if (state.screen !== "memory") return;
-    if (isMatch) {
-      first.matched = true;
-      second.matched = true;
-      playSound("correct");
-      state.players[g.turnIndex % state.players.length].score += 1;
-      g.matchesFound += 1;
-      g.firstIndex = null;
-      g.secondIndex = null;
-      g.busy = false;
+  switch (type) {
+    case "show-create":
+    case "show-join":
+    case "home":
+      mode = type.replace("show-", "");
+      message = "";
       render();
-      if (g.matchesFound === g.totalPairs) finishMemoryGame();
-    } else {
-      playSound("wrong");
-      setTimeout(() => {
-        if (state.screen !== "memory") return;
-        first.revealed = false;
-        second.revealed = false;
-        g.firstIndex = null;
-        g.secondIndex = null;
-        g.busy = false;
-        g.turnIndex += 1;
-        render();
-      }, 900);
+      app.querySelector("#player-name")?.focus();
+      break;
+    case "reset":
+      if (!pending) resetRoom();
+      break;
+    case "retry-lists": loadLists(); break;
+    case "copy": {
+      const url = inviteUrl();
+      try {
+        await navigator.clipboard.writeText(url);
+        control.textContent = "Link copied";
+      } catch {
+        const input = control.nextElementSibling;
+        input.hidden = false;
+        input.select();
+      }
+      break;
     }
-  }, 700);
-}
-
-function finishMemoryGame() {
-  state.screen = "round2-tally";
-  render();
-}
-
-function renderMemory() {
-  const g = state.memory;
-  const currentPlayerIndex = g.turnIndex % state.players.length;
-  const currentPlayer = state.players[currentPlayerIndex];
-
-  const wrap = el(`<div class="screen screen-wide"></div>`);
-  wrap.appendChild(el(`<span class="round-badge">Round 2 · Memory Match</span>`));
-  wrap.appendChild(el(`
-    <div class="play-header">
-      <span class="turn-label">${currentPlayer.name}'s turn</span>
-      <div class="pairs-badge">${g.matchesFound}/${g.totalPairs} pairs</div>
-    </div>
-  `));
-
-  const { cols, rows } = gridDims(g.cards.length);
-  const grid = el(`<div class="memory-grid" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)"></div>`);
-  g.cards.forEach((card, idx) => {
-    const shown = card.revealed || card.matched;
-    const cardEl = el(`
-      <div class="mem-card ${shown ? "flipped" : ""} ${card.matched ? "matched" : ""}">
-        <div class="mem-inner">
-          <div class="mem-face mem-back">?</div>
-          <div class="mem-face mem-front"></div>
-        </div>
-      </div>
-    `);
-    const front = cardEl.querySelector(".mem-front");
-    if (card.kind === "chinese") {
-      front.innerHTML = `<div class="mem-cn">${card.noun.chinese}</div>`;
-    } else if (card.kind === "english") {
-      front.innerHTML = `<div class="mem-en">${card.noun.english}</div>`;
-    } else {
-      front.innerHTML = `<img src="${card.noun.image}" alt="" draggable="false">`;
-      front.querySelector("img").onerror = () => {
-        front.innerHTML = `<div class="mem-en">${card.noun.english}</div>`;
-      };
-    }
-    if (!card.matched) cardEl.onclick = () => handleCardClick(idx);
-    grid.appendChild(cardEl);
-  });
-  wrap.appendChild(grid);
-
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- round 2 tally ----------
-
-function renderRound2Tally() {
-  const { maxScore, leaders } = computeLeaders();
-
-  const wrap = el(`<div class="screen"></div>`);
-  wrap.appendChild(el(`<span class="round-badge">Round 2 complete</span>`));
-  wrap.appendChild(el(`<div class="trophy">📊</div>`));
-
-  const line =
-    maxScore === 0
-      ? "No points yet — it's all to play for in round 3!"
-      : leaders.length === 1
-        ? `${leaders[0].name} is leading with ${maxScore} point${maxScore === 1 ? "" : "s"}!`
-        : `${leaders.map((l) => l.name).join(" and ")} are tied for the lead at ${maxScore} points!`;
-  wrap.appendChild(el(`<div class="winner-line">${line}</div>`));
-
-  wrap.appendChild(renderLeaderboard());
-
-  const cta = el(`<button class="btn btn-primary btn-lg">Continue to Round 3 →</button>`);
-  cta.onclick = () => beginCountdown(() => beginTabooGame());
-  wrap.appendChild(cta);
-
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- round 3: taboo ----------
-
-function beginTabooGame() {
-  const selected = allSelectedNouns();
-  const numPlayers = state.players.length;
-  const totalTurns = Math.floor(selected.length / numPlayers) * numPlayers;
-  const pool = shuffled(selected).slice(0, totalTurns);
-
-  state.taboo = {
-    pool,
-    turnIndex: 0,
-    phase: "reveal", // "reveal" | "describing"
-    wordShown: false,
-    timeUp: false,
-    timeLeft: state.describeSeconds,
-    timerId: null,
-  };
-  state.screen = "taboo";
-  render();
-}
-
-function startDescribing() {
-  const t = state.taboo;
-  t.phase = "describing";
-  t.timeUp = false;
-  t.timeLeft = state.describeSeconds;
-  render();
-
-  clearInterval(t.timerId);
-  t.timerId = setInterval(() => {
-    playTicker();
-    t.timeLeft -= 1;
-    if (t.timeLeft <= 0) {
-      clearInterval(t.timerId);
-      stopTicker();
-      t.timeUp = true;
-    }
-    render();
-  }, 1000);
-}
-
-// guesserIndex is a player index, or null when nobody guessed correctly.
-function awardTabooPoint(guesserIndex) {
-  const t = state.taboo;
-  clearInterval(t.timerId);
-  stopTicker();
-
-  const speakerIndex = t.turnIndex % state.players.length;
-  if (guesserIndex !== null) {
-    state.players[speakerIndex].score += 1;
-    state.players[guesserIndex].score += 1;
-    playSound("correct");
-  } else {
-    playSound("wrong");
+    case "leave":
+      if (isHost() && !confirm("Close this room for everyone?")) break;
+      request("leave-room", {}, (response) => { if (response?.ok) resetRoom(); });
+      break;
+    case "start": action("start", { settings }); break;
+    case "remove-player": action(type, { playerId: control.dataset.player }); break;
+    case "picture-correct":
+    case "picture-wrong": action("judge-picture", { correct: type === "picture-correct" }); break;
+    case "flip": action(type, { index: Number(control.dataset.index) }); break;
+    case "award-taboo":
+    case "pass-taboo": action("judge-taboo", { guesserId: control.dataset.player ?? null }); break;
+    default: action(type);
   }
+});
 
-  t.turnIndex += 1;
-  if (t.turnIndex >= t.pool.length) {
-    finishTabooGame();
-    return;
-  }
-
-  t.phase = "reveal";
-  t.wordShown = false;
-  t.timeUp = false;
-  t.timeLeft = state.describeSeconds;
-  render();
-}
-
-function finishTabooGame() {
-  state.screen = "results";
-  playSound("goodResult");
-  render();
-}
-
-function renderTaboo() {
-  const t = state.taboo;
-  const noun = t.pool[t.turnIndex];
-  const speakerIndex = t.turnIndex % state.players.length;
-  const speaker = state.players[speakerIndex];
-  const pct = t.timeLeft / state.describeSeconds;
-
-  const wrap = el(`<div class="screen"></div>`);
-  wrap.appendChild(el(`<span class="round-badge">Round 3 · Taboo</span>`));
-
-  if (t.phase === "reveal") {
-    wrap.appendChild(el(`
-      <div class="play-header">
-        <span class="turn-label">Pass to ${speaker.name}!</span>
-      </div>
-    `));
-
-    const scene = el(`
-      <div class="flip-scene">
-        <div class="flip-card ${t.wordShown ? "flipped" : ""}">
-          <div class="flip-face flip-front taboo-hidden-face">
-            <p class="taboo-warning">🙈 Everyone else, look away — only ${speaker.name} should see this!</p>
-            <span class="taboo-tap-hint">👀 Tap to reveal your word</span>
-          </div>
-          <div class="flip-face flip-back">
-            <div class="taboo-word-img"><img src="${noun.image}" alt="" draggable="false"></div>
-            <div class="cn">${noun.chinese}</div>
-            <div class="py">${noun.pinyin}</div>
-            <div class="en">${noun.english}</div>
-          </div>
-        </div>
-      </div>
-    `);
-    const img = scene.querySelector("img");
-    img.onerror = () => (img.closest(".taboo-word-img").style.display = "none");
-    if (!t.wordShown) {
-      scene.querySelector(".flip-card").onclick = () => {
-        t.wordShown = true;
-        render();
-      };
-    }
-    wrap.appendChild(scene);
-
-    if (t.wordShown) {
-      wrap.appendChild(el(`<p class="answer-hint">Describe it in Chinese without saying the word itself. Everyone else: guess out loud!</p>`));
-      const startBtn = el(`<button class="btn btn-primary btn-lg">Got it — hide &amp; start ${state.describeSeconds}s ▶</button>`);
-      startBtn.onclick = () => startDescribing();
-      wrap.appendChild(startBtn);
-    } else {
-      wrap.appendChild(el(`<p class="answer-hint">${speaker.name}, tap the card once everyone else has looked away.</p>`));
-    }
-  } else {
-    wrap.appendChild(el(`
-      <div class="play-header">
-        <span class="turn-label">${speaker.name} is describing…</span>
-        <div class="ring" style="--pct:${Math.max(pct, 0)}"><span>${Math.max(t.timeLeft, 0)}s</span></div>
-      </div>
-    `));
-
-    const scene = el(`
-      <div class="flip-scene">
-        <div class="flip-card ${t.timeUp ? "flipped" : ""}">
-          <div class="flip-face flip-front taboo-speaking-face">🗣️</div>
-          <div class="flip-face flip-back">
-            <div class="cn">${noun.chinese}</div>
-            <div class="py">${noun.pinyin}</div>
-            <div class="en">${noun.english}</div>
-          </div>
-        </div>
-      </div>
-    `);
-    wrap.appendChild(scene);
-
-    wrap.appendChild(el(`<p class="answer-hint">Who guessed it? The judge picks the winner below.</p>`));
-
-    const guessButtons = el(`<div class="guess-buttons"></div>`);
-    state.players.forEach((p, i) => {
-      if (i === speakerIndex) return;
-      const btn = el(`<button class="btn btn-success" data-silent="true">✅ ${p.name} guessed it!</button>`);
-      btn.onclick = () => awardTabooPoint(i);
-      guessButtons.appendChild(btn);
-    });
-    wrap.appendChild(guessButtons);
-
-    const noGuess = el(`<button class="btn btn-error btn-block" data-silent="true">❌ No one guessed</button>`);
-    noGuess.onclick = () => awardTabooPoint(null);
-    wrap.appendChild(noGuess);
-  }
-
-  const scores = el(`<div class="score-row"></div>`);
-  state.players.forEach((pl, i) => {
-    scores.appendChild(el(`<span class="score-chip ${i === speakerIndex ? "active" : ""}">${pl.name} ${pl.score}</span>`));
-  });
-  wrap.appendChild(scores);
-
-  wrap.appendChild(renderExitButton());
-  return wrap;
-}
-
-// ---------- results screen ----------
-
-function renderResults() {
-  const { maxScore, leaders: winners } = computeLeaders();
-
-  const wrap = el(`<div class="screen"></div>`);
-  wrap.appendChild(el(`<span class="round-badge">Final Results</span>`));
-  wrap.appendChild(el(`<div class="trophy">🏆</div>`));
-
-  const line =
-    winners.length === 1
-      ? `${winners[0].name} wins with ${maxScore} point${maxScore === 1 ? "" : "s"}!`
-      : `${winners.map((w) => w.name).join(" and ")} tie at ${maxScore} points!`;
-  wrap.appendChild(el(`<div class="winner-line">${line}</div>`));
-
-  wrap.appendChild(renderLeaderboard());
-
-  const actions = el(`
-    <div class="results-actions">
-      <button class="btn btn-primary btn-lg" id="btn-again">Play Again</button>
-      <button class="btn btn-ghost btn-lg" id="btn-new">New Players</button>
-    </div>
-  `);
-  actions.querySelector("#btn-again").onclick = () => startGame();
-  actions.querySelector("#btn-new").onclick = () => {
-    state.memory = null;
-    state.taboo = null;
-    state.players = [];
-    state.screen = "setup";
-    render();
-  };
-  wrap.appendChild(actions);
-
-  return wrap;
-}
-
-// ---------- boot ----------
-
-loadNouns();
+render();
+loadLists();
+socket.connect();
+setInterval(updateTimer, 100);

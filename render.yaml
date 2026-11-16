@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: chinese-nouns-game
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
