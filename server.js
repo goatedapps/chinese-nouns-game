@@ -19,7 +19,7 @@ const roomIdleTime = 2 * 60 * 60 * 1000;
 const app = express();
 app.disable("x-powered-by");
 if (process.env.RENDER === "true") app.set("trust proxy", 1);
-app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "index.html")));
+app.get("/", (_req, res) => res.sendFile(path.join(__dirname, "game.html")));
 app.get(["/app.js", "/style.css"], (req, res) => res.sendFile(path.join(__dirname, req.path)));
 app.use("/assets", express.static(path.join(__dirname, "assets"), { maxAge: "1d" }));
 app.get("/health", (_req, res) => res.send("OK"));

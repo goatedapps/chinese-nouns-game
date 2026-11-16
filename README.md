@@ -27,3 +27,5 @@ The QR code uses the same address the host opened.
 The Blueprint uses one free web service.
 Rooms live in server memory, so a service restart, redeploy, or spin-down ends active rooms.
 Use one instance so all devices in a room share the same game state.
+
+The GitHub Pages address redirects to the live Render game, which hosts the game page and the multiplayer server.

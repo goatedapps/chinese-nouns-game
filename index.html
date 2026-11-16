@@ -4,14 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chinese Nouns Game</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Quicksand:wght@500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="canonical" href="https://chinese-nouns-game.onrender.com/">
+<script>
+  const game = new URL("https://chinese-nouns-game.onrender.com/");
+  const room = new URLSearchParams(location.search).get("room");
+  if (room) game.searchParams.set("room", room);
+  location.replace(game.href);
+</script>
 </head>
 <body>
-<div id="app"></div>
-<script src="/socket.io/socket.io.js" defer></script>
-<script src="app.js" defer></script>
+<main>
+  <h1>Chinese Nouns Game</h1>
+  <p><a href="https://chinese-nouns-game.onrender.com/">Open the multiplayer game</a></p>
+</main>
 </body>
 </html>
