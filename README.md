@@ -4,6 +4,7 @@ One to eight players study everyday Mandarin nouns and play three shuffled round
 Guess the Picture, Memory Match, and Listen & Tap support solo and group play.
 Taboo can be drawn when at least three players start the session.
 The host creates a room and shares its QR code, invite link, or six-character code.
+The host chooses Nouns or 成语 in the room lobby and can switch between games after returning to the lobby.
 The host also plays, starts rounds, and records the spoken answers.
 In solo Guess the Picture, reveal the word and mark your own spoken answer.
 Players speak aloud in person or use a separate voice call.
@@ -13,8 +14,9 @@ In solo play, submitting an answer immediately starts the next question and leav
 
 ## 情境选成语
 
-Choose **Play 成语** to host a separate idiom quiz for one to eight players.
-Review the ten idioms in the lobby, then choose the best idiom for each bilingual scenario.
+Choose **成语 Idioms** in the room lobby to play the quiz with one to eight players.
+Everyone in the room can open **Learn the 10 idioms** to browse the illustrated stories at their own pace.
+When the host starts the quiz, choose the best idiom for each bilingual scenario.
 Solo play is untimed.
 In group play, answers stay locked until everyone answers or the 25-second timer runs out.
 Every answer reveal shows the correct idiom, pinyin, meaning, and why it fits the scenario.

@@ -38,7 +38,6 @@ const missingVoiceNotice = "No Mandarin voice is available. Enable Mandarin text
 
 let session = loadSession();
 let mode = incomingCode ? "join" : "home";
-let gameMode = "nouns";
 let room;
 let settings;
 let lists = [];
@@ -193,7 +192,7 @@ function request(event, data, done) {
 }
 
 function enter(type) {
-  request("enter-room", { ...entry, type, mode: gameMode, ...(type === "resume" ? session : {}) }, (response) => {
+  request("enter-room", { ...entry, type, ...(type === "resume" ? session : {}) }, (response) => {
     if (response?.ok) {
       saveSession({ code: response.code, token: response.token });
       updateRoomUrl(response.code);
@@ -288,7 +287,6 @@ function renderEntry() {
       </div>
       <div class="room-actions">
         ${button("Host a game", "show-create")}
-        ${button('Play <span lang="zh">成语</span>', "show-idioms", "ghost")}
         ${button("Join a game", "show-join", "ghost")}
       </div>
     `)}`;
@@ -296,7 +294,7 @@ function renderEntry() {
 
   const joining = mode === "join";
   return `${heading()}${woodPanel(`
-    <h2>${joining ? "Join a game" : gameMode === "idioms" ? 'Host a <span lang="zh">成语</span> game' : "Host a game"}</h2>
+    <h2>${joining ? "Join a game" : "Host a game"}</h2>
     <form id="entry-form" class="entry-form">
       <label for="player-name">Your name</label>
       <input id="player-name" name="name" required maxlength="24" autocomplete="nickname" value="${escapeHtml(entry.name)}">
@@ -327,28 +325,56 @@ function playerList() {
 }
 
 function renderIdiomStudy() {
-  const open = app.querySelector(".idiom-study")?.open;
-  return `<details class="idiom-study" ${open ? "open" : ""}>
-    <summary>Study the ${room.idiomStudy.length} idioms</summary>
-    <ul>${room.idiomStudy.map(({ chinese, pinyin, meaning }) => `<li>
-      <strong lang="zh">${escapeHtml(chinese)}</strong> <span>${escapeHtml(pinyin)}</span>
-      <p>${escapeHtml(meaning)}</p>
-    </li>`).join("")}</ul>
+  return `<details class="idiom-study">
+    <summary>Learn the ${room.idiomStudy.length} idioms</summary>
+    <div class="idiom-study-page"></div>
   </details>`;
+}
+
+function showIdiomComic(book, index) {
+  const { chinese, pinyin, meaning, comic, caption, comicAlt } = room.idiomStudy[index];
+  const page = book.querySelector(".idiom-study-page");
+  book.dataset.index = index;
+  page.innerHTML = `<div class="idiom-comic-heading">
+      <h3 class="idiom-study-title" tabindex="-1"><span lang="zh">${escapeHtml(chinese)}</span> <span>${escapeHtml(pinyin)}</span></h3>
+      <span>${index + 1} of ${room.idiomStudy.length}</span>
+    </div>
+    <p>${escapeHtml(meaning)}</p>
+    <figure class="idiom-comic">
+      <img src="/assets/idiom-comics/${escapeHtml(comic)}.webp" alt="${escapeHtml(comicAlt)}" width="960" height="320" decoding="async">
+      <figcaption lang="zh">${escapeHtml(caption)}</figcaption>
+    </figure>
+    <div class="idiom-study-nav">
+      ${button("Previous", "idiom-study-previous", "ghost", index === 0 ? "disabled" : "")}
+      ${button("Next idiom", "idiom-study-next", "ghost", index === room.idiomStudy.length - 1 ? "disabled" : "")}
+    </div>`;
+}
+
+const gameModes = { nouns: "Nouns", idioms: '<span lang="zh">成语</span> Idioms' };
+
+function modePanel() {
+  return `<section class="card-panel setup-grid">
+    <h2 id="game-mode-heading">Choose what to practise</h2>
+    <div class="mode-options" role="group" aria-labelledby="game-mode-heading">
+      ${Object.entries(gameModes).map(([id, name]) => button(name, "select-mode", "ghost",
+        `data-mode="${id}" aria-pressed="${room.mode === id}" data-network`)).join("")}
+    </div>
+    ${room.mode ? settingsPanel() : ""}
+  </section>`;
 }
 
 function settingsPanel() {
   if (room.mode === "idioms") {
-    return `<section class="card-panel setup-grid">
-      <h2 lang="zh">情境选成语</h2>
+    return `<div class="setup-grid">
+      <h3 lang="zh">情境选成语</h3>
       <p>Pick the idiom that fits each situation. Review the explanation before moving on.</p>
       ${renderIdiomStudy()}
       <p id="start-hint" class="answer-hint"></p>
       ${button("Start game", "start", "primary", "data-network")}
-    </section>`;
+    </div>`;
   }
-  if (listsFailed) return `<div class="card-panel setup-grid"><p>Couldn’t load the word lists.</p>${button("Try again", "retry-lists")}</div>`;
-  if (!lists.length) return '<div class="card-panel"><p>Loading word lists…</p></div>';
+  if (listsFailed) return `<div class="setup-grid"><p>Couldn’t load the word lists.</p>${button("Try again", "retry-lists")}</div>`;
+  if (!lists.length) return "<p>Loading word lists…</p>";
 
   const timers = [
     ["studySeconds", "Study time per page", 10, 90, 5],
@@ -356,8 +382,7 @@ function settingsPanel() {
   ];
   if (room.eligibleRounds.includes("taboo")) timers.push(["describeSeconds", "Taboo speaking time", 10, 45, 5]);
 
-  return `<section class="card-panel setup-grid">
-    <h2>Game settings</h2>
+  return `<div class="setup-grid">
     <fieldset class="word-lists"><legend class="field-label">Word lists</legend>
       <div class="list-options">${lists.map(({ id, count, label }) => `
         <label class="list-option">
@@ -375,7 +400,7 @@ function settingsPanel() {
     </div>
     <p id="start-hint" class="answer-hint"></p>
     ${button("Start game", "start", "primary", "data-network")}
-  </section>`;
+  </div>`;
 }
 
 function renderLobby() {
@@ -392,15 +417,15 @@ function renderLobby() {
       </section>` : ""}
       <section class="card-panel roster-panel">
         <h2>Room ${room.code}</h2>
-        ${idiomLobby && !isHost() ? '<p lang="zh">情境选成语</p>' : ""}
+        ${room.mode && !isHost() ? `<p><strong>${gameModes[room.mode]}</strong></p>` : ""}
         <p class="field-label">Players (${room.players.length}/8)</p>
         ${playerList()}
-        ${isHost() ? "" : "<p>Waiting for the host to start.</p>"}
+        ${isHost() ? "" : room.mode ? "<p>Waiting for the host to start.</p>" : "<p>Waiting for the host to choose what to practise.</p>"}
         ${idiomLobby && !isHost() ? renderIdiomStudy() : ""}
       </section>
-      ${isHost() ? settingsPanel() : ""}
+      ${isHost() ? modePanel() : ""}
     </div>
-    ${idiomLobby ? "" : '<p class="voice-note">Speak aloud during the game. If you’re playing remotely, join a voice call together.</p>'}`;
+    ${room.mode === "nouns" ? '<p class="voice-note">Speak aloud during the game. If you’re playing remotely, join a voice call together.</p>' : ""}`;
 }
 
 function timer() {
@@ -794,6 +819,9 @@ function render(previous) {
   const memory = Boolean(room?.cards);
   const board = app.querySelector(".online-memory");
   const countdown = app.querySelector(".round-countdown");
+  const study = app.querySelector(".idiom-study");
+  const focused = document.activeElement;
+  const modeFocus = focused?.dataset.mode;
   const keepCountdown = countdown && room?.phase === "countdown" && previous?.deadline === room.deadline;
   if (!memory) stopMemoryMotion(board);
   if (!keepCountdown) stopCountdownMotion();
@@ -811,14 +839,18 @@ function render(previous) {
   </main>`;
   if (memory && board) page.content.querySelector(".online-memory").replaceWith(board);
   if (keepCountdown) page.content.querySelector(".round-countdown").replaceWith(countdown);
+  const nextStudy = page.content.querySelector(".idiom-study");
+  if (study && nextStudy) nextStudy.replaceWith(study);
   app.replaceChildren(page.content);
+  updateStatus();
+  if (modeFocus) app.querySelector(`[data-mode="${modeFocus}"]`)?.focus({ preventScroll: true });
+  if (study?.contains(focused) && nextStudy) focused.focus({ preventScroll: true });
   if (memory) syncMemoryBoard(app.querySelector(".online-memory"), board ? previous : null);
   if (!keepCountdown && room?.phase === "countdown") animateRoundReveal(app.querySelector(".round-countdown"));
   if (room?.phase !== previous?.phase && ["round-tally", "results"].includes(room?.phase)) animateStandings();
   if (room?.phase === "idiom-question" && room.questionId !== previous?.questionId) app.querySelector(".idiom-scenario").focus();
   if (room?.phase === "idiom-answer" && previous?.phase === "idiom-question") app.querySelector(".idiom-explanation").focus();
   showScoreGains(previous);
-  updateStatus();
   updateTimer();
 }
 
@@ -894,6 +926,11 @@ app.addEventListener("submit", (event) => {
   enter(mode);
 });
 
+app.addEventListener("toggle", (event) => {
+  const book = event.target;
+  if (book.matches(".idiom-study") && book.open && book.dataset.index === undefined) showIdiomComic(book, 0);
+}, true);
+
 app.addEventListener("input", (event) => {
   const control = event.target;
   if (control.closest("#entry-form")) entry[control.name] = control.value;
@@ -926,11 +963,9 @@ app.addEventListener("click", async (event) => {
   if (type !== "listen-choose") playSound("button");
   switch (type) {
     case "show-create":
-    case "show-idioms":
     case "show-join":
     case "home":
-      gameMode = type === "show-idioms" ? "idioms" : "nouns";
-      mode = type === "show-idioms" ? "create" : type.replace("show-", "");
+      mode = type.replace("show-", "");
       message = "";
       render();
       app.querySelector("#player-name")?.focus();
@@ -955,6 +990,15 @@ app.addEventListener("click", async (event) => {
       if (isHost() && !confirm(room.players.length === 1 ? "End this session?" : "Close this room for everyone?")) break;
       request("leave-room", {}, (response) => { if (response?.ok) resetRoom(); });
       break;
+    case "select-mode": action(type, { mode: control.dataset.mode }); break;
+    case "idiom-study-previous":
+    case "idiom-study-next": {
+      const book = control.closest(".idiom-study");
+      const direction = type === "idiom-study-next" ? 1 : -1;
+      showIdiomComic(book, Number(book.dataset.index) + direction);
+      book.querySelector(".idiom-study-title").focus();
+      break;
+    }
     case "start": action("start", { settings }); break;
     case "remove-player": action(type, { playerId: control.dataset.player }); break;
     case "picture-correct":

@@ -232,9 +232,16 @@ function play(room, player, action, lists) {
   const yourTurn = () => requireGame(player === activePlayer(room), "It is another player's turn.");
 
   switch (action.type) {
+    case "select-mode":
+      host();
+      phase("lobby");
+      requireGame(action.mode === "nouns" || action.mode === "idioms", "Choose a game mode.");
+      room.mode = action.mode;
+      break;
     case "start":
       host();
       phase("lobby");
+      requireGame(room.mode, "Choose a game mode before starting.");
       requireGame(room.players.length >= MIN_PLAYERS && room.players.every((p) => p.socketId),
         "Players must be connected. Remove any disconnected players before starting.");
       if (room.mode === "idioms") startIdioms(room);
@@ -351,7 +358,7 @@ function play(room, player, action, lists) {
 function viewFor(room, player) {
   const view = {
     code: room.code,
-    mode: room.mode ?? "nouns",
+    mode: room.mode,
     selfId: player.id,
     hostId: room.hostId,
     players: room.players.map(({ id, name, socketId, score }) => ({ id, name, online: Boolean(socketId), score })),
@@ -366,8 +373,9 @@ function viewFor(room, player) {
   const phase = room.phase;
   if (phase === "lobby") {
     if (room.mode === "idioms") {
-      view.idiomStudy = idioms.map(({ chinese, pinyin, meaning }) => ({ chinese, pinyin, meaning }));
-    } else {
+      view.idiomStudy = idioms.map(({ chinese, pinyin, meaning, comic, caption, comicAlt }) =>
+        ({ chinese, pinyin, meaning, comic, caption, comicAlt }));
+    } else if (room.mode === "nouns") {
       view.settings = room.settings;
       view.eligibleRounds = eligibleRounds(room.players.length);
     }

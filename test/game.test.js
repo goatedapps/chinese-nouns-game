@@ -13,7 +13,7 @@ const lists = [{ id: "sample", nouns }];
 
 function startRoom(playerCount = 3) {
   const players = ["host", "guest", "friend"].slice(0, playerCount).map((id) => ({ id, name: id, socketId: id, score: 0 }));
-  const room = { code: "ABC234", hostId: "host", players, phase: "lobby" };
+  const room = { code: "ABC234", hostId: "host", players, phase: "lobby", mode: "nouns" };
   play(room, players[0], { type: "start", settings: { ...DEFAULT_SETTINGS, listIds: ["sample"] } }, lists);
   return room;
 }
@@ -173,14 +173,34 @@ test("Guess the Picture can finish a shuffled session", () => {
 
 function idiomRoom(playerCount) {
   const players = ["host", "guest"].slice(0, playerCount).map((id) => ({ id, name: id, socketId: id, score: 0 }));
-  const room = { code: "IDI234", mode: "idioms", hostId: "host", players, phase: "lobby" };
+  const room = { code: "IDI234", mode: null, hostId: "host", players, phase: "lobby" };
+  play(room, players[0], { type: "select-mode", mode: "idioms" });
   const study = viewFor(room, players[0]).idiomStudy;
   assert.equal(study.length, 10);
-  assert(study.every((idiom) => idiom.pinyin && idiom.meaning && !Object.hasOwn(idiom, "scenario")));
+  assert(study.every((idiom) => idiom.pinyin && idiom.meaning && idiom.comic && idiom.comicAlt &&
+    idiom.caption && !Object.hasOwn(idiom, "scenario")));
   play(room, players[0], { type: "start" });
   elapse(room);
   return room;
 }
+
+test("only the host can pick or switch games in the shared lobby", () => {
+  const players = ["host", "guest"].map((id) => ({ id, name: id, socketId: id, score: 0 }));
+  const [host, guest] = players;
+  const room = { code: "ABC234", hostId: host.id, players, phase: "lobby", mode: null };
+  const choose = (player, mode) => play(room, player, { type: "select-mode", mode }, lists);
+  assert.equal(viewFor(room, guest).mode, null);
+  assert.throws(() => play(room, host, { type: "start" }, lists), GameError);
+  assert.throws(() => choose(guest, "idioms"), GameError);
+  assert.throws(() => choose(host, "unknown"), GameError);
+  choose(host, "idioms");
+  assert.equal(viewFor(room, guest).idiomStudy.length, 10);
+  choose(host, "nouns");
+  assert.equal(viewFor(room, guest).mode, "nouns");
+  assert.equal(viewFor(room, guest).idiomStudy, undefined);
+  play(room, host, { type: "start", settings: { ...DEFAULT_SETTINGS, listIds: ["sample"] } }, lists);
+  assert.throws(() => choose(host, "idioms"), GameError);
+});
 
 test("solo idiom play is untimed and presents each of the ten terms once", () => {
   const room = idiomRoom(1);

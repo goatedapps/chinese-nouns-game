@@ -8,4 +8,5 @@
 - Deploy as a single Render web service while rooms live in process memory.
 - Save new noun images as compact WebP files using the English noun's filename slug in `assets/images`.
 - Use browser speech synthesis for Listen & Tap and keep the written solution out of the question screen.
-- Add idiom practice to `idioms.js` with simplified Chinese, pinyin, and an original bilingual scenario.
+- Keep lobby game selection server-controlled and host-only.
+- Add idiom practice to `idioms.js` with simplified Chinese, pinyin, an original bilingual scenario, and a compact WebP comic in `assets/idiom-comics`.

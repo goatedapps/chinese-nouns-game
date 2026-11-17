@@ -2,6 +2,9 @@ const idioms = [
   {
     chinese: "画蛇添足",
     pinyin: "huà shé tiān zú",
+    comic: "draw-legs-on-a-snake",
+    caption: "蛇已经画好了。再添上脚，反而不像蛇了。",
+    comicAlt: "A girl finishes drawing a snake. She adds legs and spoils the drawing.",
     meaning: "Spoil something by adding an unnecessary extra.",
     scenario: "小丽的课堂报告本来很清楚。她加了很多不必要的动画，结果大家反而看不清重点。",
     translation: "Li’s class presentation was clear. She added unnecessary animations that made the key points harder to follow.",
@@ -10,6 +13,9 @@ const idioms = [
   {
     chinese: "亡羊补牢",
     pinyin: "wáng yáng bǔ láo",
+    comic: "mend-the-sheep-pen",
+    caption: "羊跑了，农夫赶紧修好围栏，保住了剩下的羊。",
+    comicAlt: "A sheep escapes through a broken fence. The farmer fixes the fence, keeping the other sheep safe.",
     meaning: "Fix a problem after a setback to prevent further losses.",
     scenario: "小杰忘了交功课。之后，他在手机上设了提醒，免得下次再忘。",
     translation: "Jie forgot to hand in his homework. Afterwards, he set a reminder on his phone so he would remember next time.",
@@ -18,6 +24,9 @@ const idioms = [
   {
     chinese: "守株待兔",
     pinyin: "shǒu zhū dài tù",
+    comic: "wait-by-the-stump",
+    caption: "农夫碰巧看见一只兔子，就丢下农活，守着树桩等兔子再来。",
+    comicAlt: "A farmer happens to see a rabbit by a stump. He puts down his hoe and waits all day for another rabbit, while his crops wilt.",
     meaning: "Wait for past good luck to repeat instead of making an effort.",
     scenario: "小文上次没复习，碰巧猜对了好几题。这次他还是不复习，只盼自己再走运。",
     translation: "Wen guessed several answers correctly last time without studying. This time, he skips revision again and hopes to get lucky.",
@@ -26,6 +35,9 @@ const idioms = [
   {
     chinese: "井底之蛙",
     pinyin: "jǐng dǐ zhī wā",
+    comic: "frog-in-the-well",
+    caption: "青蛙在井底只看见一小片天。跳出井口，才发现天空那么大。",
+    comicAlt: "A frog sees a tiny circle of sky from inside a well. It climbs out and discovers how vast the sky is.",
     meaning: "Someone whose limited experience gives them a narrow view.",
     scenario: "阿明只去过家附近的一个小公园，却认定全新加坡的公园都和这个一样。",
     translation: "Ming has visited only one small park near his flat, but he assumes every park in Singapore is just like it.",
@@ -34,6 +46,9 @@ const idioms = [
   {
     chinese: "掩耳盗铃",
     pinyin: "yǎn ěr dào líng",
+    comic: "cover-your-ears",
+    caption: "男孩捂着耳朵去拿铃铛，铃声还是被别人听见了。",
+    comicAlt: "A boy covers his ear as he pulls a bell's rope. The bell rings and the homeowner comes out.",
     meaning: "Fool yourself by ignoring something you know is true.",
     scenario: "图书馆提醒小美，她借的书已经逾期了。她删掉通知，就当作书没有逾期。",
     translation: "The library reminds Mei that her book is overdue. She deletes the notification and tells herself the book is still on time.",
@@ -42,6 +57,9 @@ const idioms = [
   {
     chinese: "一举两得",
     pinyin: "yī jǔ liǎng dé",
+    comic: "two-benefits",
+    caption: "骑脚踏车去图书馆，一趟既还了书，又做了运动。",
+    comicAlt: "A child cycles through a park to return a library book, getting exercise and returning the book in one trip.",
     meaning: "Get two benefits from one action.",
     scenario: "小华骑脚踏车去图书馆还书，既还了书，又做了运动。",
     translation: "Hua cycles to the library to return a book. She gets the book back on time and gets some exercise on the same trip.",
@@ -50,6 +68,9 @@ const idioms = [
   {
     chinese: "自相矛盾",
     pinyin: "zì xiāng máo dùn",
+    comic: "contradict-yourself",
+    caption: "他刚说自己整天没出门，又说上午去了巴刹。两句话说不通。",
+    comicAlt: "A boy tells his friend he stayed on the sofa at home all day, then says he bought vegetables at the wet market that morning. His friend looks puzzled.",
     meaning: "Make two claims that cannot both be true.",
     scenario: "哥哥刚说自己今天整天没出门，下一句却说他今天上午去巴刹买了菜。",
     translation: "My brother says he stayed home all day. In the next sentence, he says he went to the wet market this morning.",
@@ -58,6 +79,9 @@ const idioms = [
   {
     chinese: "半途而废",
     pinyin: "bàn tú ér fèi",
+    comic: "give-up-halfway",
+    caption: "拼图只拼了一半，他就把它丢在一旁，再也没回来拼。",
+    comicAlt: "A child starts a kite jigsaw puzzle, then walks away and leaves it half-finished.",
     meaning: "Give up before finishing what you started.",
     scenario: "小凯打算做好一个模型，但做到一半就把材料收起来，再也没继续做。",
     translation: "Kai plans to finish a model, puts the materials away halfway through, and never goes back to finish it.",
@@ -66,6 +90,9 @@ const idioms = [
   {
     chinese: "七上八下",
     pinyin: "qī shàng bā xià",
+    comic: "nervous-before-a-speech",
+    caption: "快轮到她上台了。她捏紧提示卡，在门外紧张地走来走去。",
+    comicAlt: "A girl paces outside a classroom waiting to give a talk. She clutches her cue cards and looks worried.",
     meaning: "Feel anxious or unsettled.",
     scenario: "快轮到小玲上台演讲了。她手心出汗，心里一直担心自己会忘词。",
     translation: "Ling is about to give a speech. Her palms are sweaty and she keeps worrying that she’ll forget her lines.",
@@ -74,6 +101,9 @@ const idioms = [
   {
     chinese: "一心一意",
     pinyin: "yī xīn yī yì",
+    comic: "give-it-your-full-attention",
+    caption: "朋友在窗外玩，她却一心一意地练书法。",
+    comicAlt: "A student puts her tablet aside and stays focused on her calligraphy while friends play outside her window.",
     meaning: "Give your full attention and effort to one thing.",
     scenario: "小安认真练习书法。朋友在一旁聊天，她还是专心地一笔一画写下去。",
     translation: "An is practising calligraphy. Her friends are chatting nearby, but she stays focused on every stroke.",

@@ -37,14 +37,14 @@ app.get("/api/rooms/:code/qr", async (req, res) => {
 const server = createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 8192 });
 
-function makeRoom(mode) {
+function makeRoom() {
   let code;
   do {
     code = Array.from({ length: 6 }, () => codes[randomInt(codes.length)]).join("");
   } while (rooms.has(code));
   return {
     code,
-    mode,
+    mode: null,
     players: [],
     phase: "lobby",
     settings: { ...DEFAULT_SETTINGS, listIds: lists.slice(0, 1).map((list) => list.id) },
@@ -147,9 +147,7 @@ io.on("connection", (socket) => {
     requireGame(!socket.data.code, "Leave your current room before joining another.");
     if (data.type === "create") {
       requireGame(rooms.size < maxRooms, "The server is full. Try again later.");
-      const mode = data.mode ?? "nouns";
-      requireGame(mode === "nouns" || mode === "idioms", "Choose a game mode.");
-      const room = makeRoom(mode);
+      const room = makeRoom();
       const player = addPlayer(room, data.name);
       room.hostId = player.id;
       rooms.set(room.code, room);
