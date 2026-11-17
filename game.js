@@ -1,4 +1,5 @@
 const { randomInt, randomUUID } = require("node:crypto");
+const { idioms } = require("./idioms");
 
 const MIN_PLAYERS = 1;
 const MAX_PLAYERS = 8;
@@ -44,9 +45,7 @@ function eligibleRounds(playerCount) {
   return Object.keys(ROUND_MIN_PLAYERS).filter((round) => playerCount >= ROUND_MIN_PLAYERS[round]);
 }
 
-function start(room, lists, settings) {
-  requireGame(room.players.length >= MIN_PLAYERS && room.players.every((p) => p.socketId),
-    "Players must be connected. Remove any disconnected players before starting.");
+function startNouns(room, lists, settings) {
   const listIds = Array.isArray(settings?.listIds) ? [...new Set(settings.listIds)] : [];
   const selected = lists.filter((list) => listIds.includes(list.id)).flatMap((list) => list.nouns);
   requireGame(selected.length >= room.players.length, "Choose enough words for everyone to take a turn.");
@@ -70,6 +69,14 @@ function start(room, lists, settings) {
   for (let i = 0; i < studyOrder.length; i += 10) room.pages.push(studyOrder.slice(i, i + 10));
   room.page = 0;
   changePhase(room, "study", timers.studySeconds * 1000);
+}
+
+function startIdioms(room) {
+  room.players.forEach((player) => { player.score = 0; });
+  room.rounds = ["idioms"];
+  room.roundIndex = 0;
+  room.idiomPool = shuffled(idioms);
+  countdown(room);
 }
 
 function beginMemory(room) {
@@ -106,7 +113,39 @@ function beginRound(room) {
       room.listenPool = shuffled(room.studyPool).slice(0, 8);
       beginListenQuestion(room);
       break;
+    case "idioms":
+      beginIdiomQuestion(room);
+      break;
   }
+}
+
+function beginIdiomQuestion(room) {
+  const idiom = room.idiomPool[room.turn];
+  const distractors = shuffled(idioms.filter((option) => option !== idiom)).slice(0, 3);
+  const choices = shuffled([idiom, ...distractors]);
+  room.idiomQuestion = { id: randomUUID(), idiom, choices, answers: new Map() };
+  changePhase(room, "idiom-question", room.players.length === 1 ? 0 : 25000);
+}
+
+function scoreChoices(players, answers, correctIndex) {
+  for (const player of players) {
+    if (answers.get(player.id) === correctIndex) player.score++;
+  }
+}
+
+function submitChoice(room, player, action, question) {
+  const { id, choices, answers } = question;
+  requireGame(action.questionId === id && (room.deadline === null || Date.now() < room.deadline), "This question has closed.");
+  requireGame(!answers.has(player.id), "Your answer is already locked in.");
+  requireGame(Number.isInteger(action.index) && action.index >= 0 && action.index < choices.length, "Choose an answer.");
+  answers.set(player.id, action.index);
+  return room.players.every((p) => answers.has(p.id));
+}
+
+function revealIdiomAnswer(room) {
+  const { idiom, choices, answers } = room.idiomQuestion;
+  scoreChoices(room.players, answers, choices.indexOf(idiom));
+  changePhase(room, "idiom-answer");
 }
 
 function beginListenQuestion(room) {
@@ -128,9 +167,7 @@ function nextListenQuestion(room) {
 function revealListenAnswer(room, advance = false) {
   const { noun, choices, answers } = room.listening;
   const correctIndex = choices.indexOf(noun);
-  for (const player of room.players) {
-    if (answers.get(player.id) === correctIndex) player.score++;
-  }
+  scoreChoices(room.players, answers, correctIndex);
   if (advance) {
     room.listenRecap = { noun, correct: answers.get(room.hostId) === correctIndex };
     nextListenQuestion(room);
@@ -180,6 +217,9 @@ function elapse(room) {
     case "listen-answer":
       nextListenQuestion(room);
       break;
+    case "idiom-question":
+      revealIdiomAnswer(room);
+      break;
     case "taboo-speak":
       changePhase(room, "taboo-answer");
       break;
@@ -195,7 +235,10 @@ function play(room, player, action, lists) {
     case "start":
       host();
       phase("lobby");
-      start(room, lists, action.settings);
+      requireGame(room.players.length >= MIN_PLAYERS && room.players.every((p) => p.socketId),
+        "Players must be connected. Remove any disconnected players before starting.");
+      if (room.mode === "idioms") startIdioms(room);
+      else startNouns(room, lists, action.settings);
       break;
     case "skip-study":
       host();
@@ -278,16 +321,21 @@ function play(room, player, action, lists) {
       nextTaboo(room);
       break;
     }
-    case "listen-answer": {
+    case "listen-answer":
       phase("listen-question");
-      const { id, choices, answers } = room.listening;
-      requireGame(action.questionId === id && Date.now() < room.deadline, "This question has closed.");
-      requireGame(!answers.has(player.id), "Your answer is already locked in.");
-      requireGame(Number.isInteger(action.index) && action.index >= 0 && action.index < choices.length, "Choose a picture.");
-      answers.set(player.id, action.index);
-      if (room.players.every((p) => answers.has(p.id))) revealListenAnswer(room, room.players.length === 1);
+      if (submitChoice(room, player, action, room.listening)) revealListenAnswer(room, room.players.length === 1);
       break;
-    }
+    case "idiom-answer":
+      phase("idiom-question");
+      if (submitChoice(room, player, action, room.idiomQuestion)) revealIdiomAnswer(room);
+      break;
+    case "next-idiom":
+      host();
+      phase("idiom-answer");
+      room.turn++;
+      if (room.turn === room.idiomPool.length) finishRound(room);
+      else beginIdiomQuestion(room);
+      break;
     case "lobby":
       host();
       phase("results");
@@ -303,6 +351,7 @@ function play(room, player, action, lists) {
 function viewFor(room, player) {
   const view = {
     code: room.code,
+    mode: room.mode ?? "nouns",
     selfId: player.id,
     hostId: room.hostId,
     players: room.players.map(({ id, name, socketId, score }) => ({ id, name, online: Boolean(socketId), score })),
@@ -316,8 +365,12 @@ function viewFor(room, player) {
 
   const phase = room.phase;
   if (phase === "lobby") {
-    view.settings = room.settings;
-    view.eligibleRounds = eligibleRounds(room.players.length);
+    if (room.mode === "idioms") {
+      view.idiomStudy = idioms.map(({ chinese, pinyin, meaning }) => ({ chinese, pinyin, meaning }));
+    } else {
+      view.settings = room.settings;
+      view.eligibleRounds = eligibleRounds(room.players.length);
+    }
   }
   if (phase === "study") {
     view.nouns = room.pages[room.page];
@@ -364,6 +417,22 @@ function viewFor(room, player) {
     if (phase === "listen-answer") {
       view.correctIndex = choices.indexOf(noun);
       view.prompt = noun;
+    }
+  }
+  if (phase.startsWith("idiom")) {
+    const { id, idiom, choices, answers } = room.idiomQuestion;
+    const { chinese, pinyin, meaning, scenario, translation, reason } = idiom;
+    view.questionId = id;
+    view.turn = room.turn + 1;
+    view.turns = room.idiomPool.length;
+    view.scenario = scenario;
+    view.translation = translation;
+    view.choices = choices.map((option) => option.chinese);
+    view.answered = answers.size;
+    view.choice = answers.get(player.id) ?? null;
+    if (phase === "idiom-answer") {
+      view.correctIndex = choices.indexOf(idiom);
+      view.prompt = { chinese, pinyin, meaning, reason };
     }
   }
   return view;

@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { DEFAULT_SETTINGS, GameError, play, elapse, viewFor } = require("../game");
+const { idioms } = require("../idioms");
 
 const nouns = Array.from({ length: 10 }, (_, order) => ({
   chinese: "词" + order,
@@ -168,4 +169,59 @@ test("Guess the Picture can finish a shuffled session", () => {
   for (const _ of room.pool) play(room, host, { type: "judge-picture", correct: true }, lists);
   assert.equal(room.phase, "results");
   assert.deepEqual(room.players.map((player) => player.score), [3, 3, 3]);
+});
+
+function idiomRoom(playerCount) {
+  const players = ["host", "guest"].slice(0, playerCount).map((id) => ({ id, name: id, socketId: id, score: 0 }));
+  const room = { code: "IDI234", mode: "idioms", hostId: "host", players, phase: "lobby" };
+  const study = viewFor(room, players[0]).idiomStudy;
+  assert.equal(study.length, 10);
+  assert(study.every((idiom) => idiom.pinyin && idiom.meaning && !Object.hasOwn(idiom, "scenario")));
+  play(room, players[0], { type: "start" });
+  elapse(room);
+  return room;
+}
+
+test("solo idiom play is untimed and presents each of the ten terms once", () => {
+  const room = idiomRoom(1);
+  const [host] = room.players;
+  const seen = new Set();
+  for (let turn = 1; turn <= idioms.length; turn++) {
+    const question = viewFor(room, host);
+    const { idiom } = room.idiomQuestion;
+    assert.equal(question.turn, turn);
+    assert.equal(question.deadline, null);
+    assert.equal(question.phase, "idiom-question");
+    assert.equal(question.correctIndex, undefined);
+    assert.equal(question.prompt, undefined);
+    assert.equal(new Set(question.choices).size, 4);
+    seen.add(idiom.chinese);
+    play(room, host, { type: "idiom-answer", questionId: question.questionId, index: question.choices.indexOf(idiom.chinese) });
+    const revealed = viewFor(room, host);
+    assert.equal(revealed.phase, "idiom-answer");
+    assert.deepEqual(revealed.prompt, { chinese: idiom.chinese, pinyin: idiom.pinyin, meaning: idiom.meaning, reason: idiom.reason });
+    play(room, host, { type: "next-idiom" });
+  }
+  assert.equal(seen.size, 10);
+  assert.equal(host.score, 10);
+  assert.equal(room.phase, "results");
+});
+
+test("group idiom answers stay private and score when the timer closes", () => {
+  const room = idiomRoom(2);
+  const [host, guest] = room.players;
+  const { id, idiom, choices } = room.idiomQuestion;
+  const answer = { type: "idiom-answer", questionId: id, index: choices.indexOf(idiom) };
+  assert.equal(room.duration, 25000);
+  assert.throws(() => play(room, host, { ...answer, questionId: "old" }), GameError);
+  play(room, host, answer);
+  assert.throws(() => play(room, host, answer), GameError);
+  assert.equal(viewFor(room, guest).choice, null);
+  assert.equal(host.score, 0);
+  room.deadline = Date.now() - 1;
+  assert.throws(() => play(room, guest, answer), GameError);
+  elapse(room);
+  assert.equal(room.phase, "idiom-answer");
+  assert.deepEqual(room.players.map((player) => player.score), [1, 0]);
+  assert.throws(() => play(room, guest, { type: "next-idiom" }), GameError);
 });

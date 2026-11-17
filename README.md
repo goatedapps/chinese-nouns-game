@@ -11,6 +11,14 @@ Listen & Tap uses each browser's text-to-speech to read the Mandarin word.
 Enable a Mandarin voice on your device if the game reports that one is missing.
 In solo play, submitting an answer immediately starts the next question and leaves the previous word visible for review.
 
+## 情境选成语
+
+Choose **Play 成语** to host a separate idiom quiz for one to eight players.
+Review the ten idioms in the lobby, then choose the best idiom for each bilingual scenario.
+Solo play is untimed.
+In group play, answers stay locked until everyone answers or the 25-second timer runs out.
+Every answer reveal shows the correct idiom, pinyin, meaning, and why it fits the scenario.
+
 ## Run locally
 
 Run these commands with Node.js 24.

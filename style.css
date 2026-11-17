@@ -602,6 +602,61 @@ h2, p { margin: 0; }
 }
 .listen-recap p:first-child { color: var(--ink-soft); font-size: 0.85rem; }
 .listen-recap b { color: var(--ink); font-size: 1.15em; }
+.idiom-study summary {
+  width: fit-content;
+  font-weight: 800;
+  color: var(--primary-dark);
+  cursor: pointer;
+}
+.idiom-study ul {
+  list-style: none;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+.idiom-study li {
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff8ea;
+}
+.idiom-study strong, .idiom-explanation strong { font-size: 1.2rem; }
+.idiom-study span, .idiom-explanation span { color: var(--ink-soft); font-size: 0.92rem; }
+.idiom-study li p { margin-top: 0.25rem; }
+.idiom-scenario, .idiom-explanation {
+  width: min(100%, 640px);
+  display: grid;
+  gap: 0.55rem;
+}
+.idiom-scenario p[lang="zh"] { font-size: clamp(1.15rem, 4vw, 1.5rem); line-height: 1.55; }
+.idiom-scenario p + p { color: var(--ink-soft); }
+.idiom-choices {
+  width: min(100%, 640px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+.idiom-choice {
+  display: grid;
+  place-content: center;
+  gap: 0.15rem;
+  min-height: 3.8rem;
+  padding: 0.55rem;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: #fffaf2;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.idiom-choice strong { font-size: clamp(1.1rem, 4vw, 1.55rem); }
+.idiom-choice span { font-size: 0.78rem; }
+.idiom-choice:disabled { cursor: default; }
+.idiom-choice.is-selected { border-color: #235d9b; background: #edf3fb; }
+.idiom-choice.is-correct { border-color: #1f7546; background: #e9f2df; }
+.idiom-explanation { border-color: #88a777; }
 .score-chip { overflow-wrap: anywhere; }
 
 @media (max-width: 680px) {

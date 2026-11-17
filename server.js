@@ -37,13 +37,14 @@ app.get("/api/rooms/:code/qr", async (req, res) => {
 const server = createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 8192 });
 
-function makeRoom() {
+function makeRoom(mode) {
   let code;
   do {
     code = Array.from({ length: 6 }, () => codes[randomInt(codes.length)]).join("");
   } while (rooms.has(code));
   return {
     code,
+    mode,
     players: [],
     phase: "lobby",
     settings: { ...DEFAULT_SETTINGS, listIds: lists.slice(0, 1).map((list) => list.id) },
@@ -146,7 +147,9 @@ io.on("connection", (socket) => {
     requireGame(!socket.data.code, "Leave your current room before joining another.");
     if (data.type === "create") {
       requireGame(rooms.size < maxRooms, "The server is full. Try again later.");
-      const room = makeRoom();
+      const mode = data.mode ?? "nouns";
+      requireGame(mode === "nouns" || mode === "idioms", "Choose a game mode.");
+      const room = makeRoom(mode);
       const player = addPlayer(room, data.name);
       room.hostId = player.id;
       rooms.set(room.code, room);
@@ -178,7 +181,8 @@ io.on("connection", (socket) => {
       room.players = room.players.filter((p) => p !== target);
       updatePlayers(room);
     } else {
-      requireGame(action.type === "listen-answer" || action.revision === room.revision, "The game has moved on. Try the current turn.");
+      const questionAnswer = action.type === "listen-answer" || action.type === "idiom-answer";
+      requireGame(questionAnswer || action.revision === room.revision, "The game has moved on. Try the current turn.");
       const previousFeedback = room.feedback;
       room.feedback = null;
       try {
