@@ -60,7 +60,12 @@ test("solo picture play reveals the word before self-scoring", () => {
   assert(viewFor(room, host).prompt.chinese);
   play(room, host, correct, lists);
   assert.equal(host.score, 1);
+  assert.equal(room.turn, 0);
+  assert.equal(room.phase, "picture-review");
+  assert.equal(viewFor(room, host).pictureCorrect, true);
+  elapse(room);
   assert.equal(room.turn, 1);
+  assert.equal(room.phase, "picture");
   elapse(room);
   assert.equal(room.phase, "picture-answer");
 });
@@ -166,9 +171,46 @@ test("Guess the Picture can finish a shuffled session", () => {
   assert.deepEqual(Object.keys(viewFor(room, guest).prompt), ["image"]);
   elapse(room);
   assert(viewFor(room, guest).prompt.chinese);
-  for (const _ of room.pool) play(room, host, { type: "judge-picture", correct: true }, lists);
+  for (const word of room.pool) {
+    play(room, host, { type: "judge-picture", correct: true }, lists);
+    assert.equal(viewFor(room, guest).prompt, word);
+    elapse(room);
+  }
   assert.equal(room.phase, "results");
   assert.deepEqual(room.players.map((player) => player.score), [3, 3, 3]);
+  assert.deepEqual(viewFor(room, guest).players.map((player) => player.roundPoints), [3, 3, 3]);
+});
+
+test("study uses short pages and only the solo player advances manually", () => {
+  const solo = startRoom(1);
+  const [host] = solo.players;
+  assert.equal(solo.deadline, null);
+  assert.deepEqual(solo.pages.map((page) => page.length), [4, 4, 2]);
+  for (let i = 0; i < 3; i++) play(solo, host, { type: "next-study" }, lists);
+  assert.equal(solo.phase, "countdown");
+  const group = startRoom(2);
+  assert.throws(() => play(group, group.players[0], { type: "next-study" }, lists), GameError);
+  assert(group.deadline > Date.now());
+  elapse(group);
+  assert.equal(group.page, 1);
+});
+
+test("one unavailable audio device switches Listen & Tap to the same reading clue for the room", () => {
+  const room = startRoom(2);
+  const [host, guest] = room.players;
+  guest.audio = "unavailable";
+  room.phase = "lobby";
+  play(room, host, { type: "start", settings: room.settings }, lists);
+  room.rounds = ["listen"];
+  play(room, host, { type: "skip-study" }, lists);
+  elapse(room);
+  const view = viewFor(room, guest);
+  assert.equal(view.readingClues, true);
+  assert.equal(view.readingClue, viewFor(room, host).readingClue);
+  assert.equal(view.spokenWord, undefined);
+  assert.equal(view.prompt, undefined);
+  elapse(room);
+  assert.equal(viewFor(room, guest).readingClue, undefined);
 });
 
 function idiomRoom(playerCount) {
@@ -225,6 +267,7 @@ test("solo idiom play is untimed and presents each of the ten terms once", () =>
   assert.equal(seen.size, 10);
   assert.equal(host.score, 10);
   assert.equal(room.phase, "results");
+  assert.deepEqual(viewFor(room, host).idiomReview, []);
 });
 
 test("group idiom answers stay private and score when the timer closes", () => {
@@ -244,4 +287,11 @@ test("group idiom answers stay private and score when the timer closes", () => {
   assert.equal(room.phase, "idiom-answer");
   assert.deepEqual(room.players.map((player) => player.score), [1, 0]);
   assert.throws(() => play(room, guest, { type: "next-idiom" }), GameError);
+  assert.equal(viewFor(room, guest).idiomReview, undefined);
+  room.idiomPool = [idiom];
+  play(room, host, { type: "next-idiom" });
+  assert.equal(room.phase, "results");
+  assert.deepEqual(viewFor(room, host).idiomReview, []);
+  assert.deepEqual(viewFor(room, guest).idiomReview.map((entry) => entry.chinese), [idiom.chinese]);
+  assert.equal(viewFor(room, guest).idiomReview[0].reason, idiom.reason);
 });

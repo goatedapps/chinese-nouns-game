@@ -7,7 +7,8 @@
 - Set each round's minimum player count on the server so solo and two-player rooms can start.
 - Deploy as a single Render web service while rooms live in process memory.
 - Save new noun images as compact WebP files using the English noun's filename slug in `assets/images`.
-- Use browser speech synthesis for Listen & Tap and keep the written solution out of the question screen.
+- Use browser speech synthesis for Listen & Tap, and show the written clue only when the whole room uses Read & Tap.
+- Use the mobile and wide WebP backgrounds and leave the lobby QR unloaded until the host opens **Invite**.
 - Keep lobby game selection server-controlled and host-only.
 - Add idiom practice to `idioms.js` with simplified Chinese, pinyin, an original bilingual scenario, and a compact WebP comic in `assets/idiom-comics`.
 - Save the matching animation in `assets/idiom-animations` and load it only when a player selects **Play animation**.

@@ -50,6 +50,9 @@ let localDeadline = 0;
 let audioQuestion;
 let audioNotice = "";
 let activeWord;
+let testUtterance;
+let audioTestResult;
+let lastReportedAudio;
 let roundIntro;
 let countdownMotion;
 let countdownBeat;
@@ -107,7 +110,7 @@ function playSound(name) {
 }
 
 function mandarinVoice() {
-  const voices = speech.getVoices().flatMap((voice) => {
+  const voices = (speech?.getVoices() ?? []).flatMap((voice) => {
     const [language, ...subtags] = voice.lang.toLowerCase().split("-");
     if (language !== "cmn" && (language !== "zh" || subtags.some((tag) => ["yue", "hk", "mo"].includes(tag)))) return [];
     const priority = subtags.includes("sg") ? 0 : subtags.includes("cn") || subtags.includes("hans") ? 1 : 2;
@@ -115,6 +118,69 @@ function mandarinVoice() {
   });
   voices.sort((a, b) => a.priority - b.priority || Number(b.voice.localService) - Number(a.voice.localService));
   return voices[0]?.voice;
+}
+
+function audioStatus() {
+  if (!window.SpeechSynthesisUtterance || !mandarinVoice()) return "unavailable";
+  return ["ready", "unavailable"].includes(audioTestResult) ? audioTestResult : "untested";
+}
+
+function reportAudioStatus() {
+  if (!socket.connected || room?.phase !== "lobby" || room.mode !== "nouns") return;
+  const status = audioStatus();
+  const key = `${room.code}:${status}`;
+  if (lastReportedAudio === key) return;
+  lastReportedAudio = key;
+  socket.timeout(4000).emit("audio-status", { status }, (error, response) => {
+    if ((error || !response?.ok) && lastReportedAudio === key) lastReportedAudio = null;
+  });
+}
+
+function updateAudioTest() {
+  const notice = app.querySelector("#audio-test-status");
+  if (!notice) return;
+  const labels = {
+    ready: "Test played. If you couldn’t hear it, check your volume or use reading clues.",
+    unavailable: "Mandarin audio isn’t available on this device. The room will use reading clues.",
+    untested: "Play a sample to check your voice and volume.",
+    playing: "Playing a sample…",
+  };
+  notice.textContent = labels[audioTestResult === "playing" ? "playing" : audioStatus()];
+}
+
+function testMandarinAudio() {
+  const voice = mandarinVoice();
+  if (!voice || !window.SpeechSynthesisUtterance) {
+    updateAudioTest();
+    reportAudioStatus();
+    return;
+  }
+  if (testUtterance) speech.cancel();
+  const word = new SpeechSynthesisUtterance("你好！欢迎来练习中文。");
+  word.voice = voice;
+  word.lang = voice.lang;
+  word.rate = 0.9;
+  testUtterance = word;
+  const finish = (result) => {
+    if (testUtterance !== word) return;
+    testUtterance = null;
+    audioTestResult = result;
+    updateAudioTest();
+    reportAudioStatus();
+  };
+  word.onend = () => finish("ready");
+  word.onerror = () => finish("unavailable");
+  audioTestResult = "playing";
+  updateAudioTest();
+  effectAudio.pause();
+  speech.speak(word);
+}
+
+function stopAudioTest() {
+  if (!testUtterance) return;
+  testUtterance = null;
+  audioTestResult = null;
+  speech.cancel();
 }
 
 function showAudioNotice(notice) {
@@ -177,6 +243,8 @@ function updateWordAudio() {
 
 speech?.addEventListener("voiceschanged", () => {
   if (room?.phase === "listen-question" && audioNotice === missingVoiceNotice && mandarinVoice()) replayWord();
+  updateAudioTest();
+  reportAudioStatus();
 });
 speech?.getVoices();
 
@@ -215,12 +283,14 @@ function resetRoom(reason = "") {
   entry.code = "";
   mode = "home";
   message = reason;
+  stopAudioTest();
   updateWordAudio();
   render();
 }
 
 socket.on("connect", () => {
   message = "";
+  lastReportedAudio = null;
   if (session) enter("resume");
   updateStatus();
 });
@@ -232,6 +302,7 @@ socket.on("room-state", (state) => {
   localDeadline = room.deadline ? performance.now() + room.deadline - room.serverTime : 0;
   if (room.phase === "lobby" && room.settings && !settings) settings = structuredClone(room.settings);
   if (room.phase !== "lobby") settings = null;
+  if (room.phase !== "lobby" || room.mode !== "nouns") stopAudioTest();
   updateWordAudio();
   if (previous && previous.revision !== room.revision) playSound(room.feedback);
   if (previous && previous.phase !== room.phase) {
@@ -243,6 +314,7 @@ socket.on("room-state", (state) => {
     playSound(room.choice === room.correctIndex ? "correct" : "wrong");
   }
   render(previous);
+  reportAudioStatus();
 });
 
 async function loadLists() {
@@ -288,7 +360,7 @@ function renderEntry() {
         <p>Practise everyday Mandarin words or try the <span lang="zh">成语</span> quiz. Play solo or invite friends.</p>
       </div>
       <div class="room-actions">
-        ${button("Host a game", "show-create")}
+        ${button("Start a room", "show-create")}
         ${button("Join a game", "show-join", "ghost")}
       </div>
     `)}`;
@@ -296,7 +368,7 @@ function renderEntry() {
 
   const joining = mode === "join";
   return `${heading()}${woodPanel(`
-    <h2>${joining ? "Join a game" : "Host a game"}</h2>
+    <h2>${joining ? "Join a game" : "Start a room"}</h2>
     <form id="entry-form" class="entry-form">
       <label for="player-name">Your name</label>
       <input id="player-name" name="name" required maxlength="24" autocomplete="nickname" value="${escapeHtml(entry.name)}">
@@ -316,45 +388,73 @@ function inviteUrl() {
 }
 
 function playerList() {
+  const audioLabels = { ready: "Audio tested", unavailable: "Reading clues", untested: "Audio untested" };
   return `<ul class="player-list">${room.players.map((player) => `
     <li><span><strong>${escapeHtml(player.name)}</strong>
       ${player.id === room.hostId ? '<small class="player-role">Host</small>' : ""}
       ${player.id === room.selfId ? '<small class="player-role">You</small>' : ""}
     </span>
-    ${player.online ? "" : `<small>Disconnected</small>
+    ${player.online ? room.mode === "nouns" ? `<small>${audioLabels[player.audio ?? "untested"]}</small>` : "" : `<small>Disconnected</small>
       ${isHost() ? button("Remove", "remove-player", "ghost", `data-player="${player.id}" data-network`) : ""}`}
     </li>`).join("")}</ul>`;
 }
 
-function renderIdiomStudy() {
-  return `<details class="idiom-study">
-    <summary>Learn the ${room.idiomStudy.length} idioms</summary>
+function renderIdiomStudy(review = false) {
+  return `<details class="idiom-study" data-collection="${review ? "review" : "study"}">
+    <summary>${review ? `Review missed idioms (${room.idiomReview.length})` : "Learn idioms"}</summary>
     <div class="idiom-study-page"></div>
   </details>`;
 }
 
+function idiomEntries(book) {
+  return book.dataset.collection === "review" ? room.idiomReview : room.idiomStudy;
+}
+
 function showIdiomComic(book, index) {
-  const { chinese, pinyin, meaning, comic, caption, comicAlt } = room.idiomStudy[index];
+  const entries = idiomEntries(book);
+  const { chinese, pinyin, meaning, comic, caption, comicAlt, scenario, translation, reason } = entries[index];
   const page = book.querySelector(".idiom-study-page");
   book.dataset.index = index;
   page.innerHTML = `<div class="idiom-comic-heading">
       <h3 class="idiom-study-title" tabindex="-1"><span lang="zh">${escapeHtml(chinese)}</span> <span>${escapeHtml(pinyin)}</span></h3>
-      <span>${index + 1} of ${room.idiomStudy.length}</span>
+      <span>${index + 1} of ${entries.length}</span>
     </div>
     <p>${escapeHtml(meaning)}</p>
+    ${reason ? `<div class="review-reason">
+      <p lang="zh">${escapeHtml(scenario)}</p>
+      <p>${escapeHtml(translation)}</p>
+      <p><strong>${escapeHtml(reason)}</strong></p>
+    </div>` : ""}
     <figure class="idiom-comic">
-      <img src="/assets/idiom-comics/${escapeHtml(comic)}.webp" alt="${escapeHtml(comicAlt)}" width="960" height="320" decoding="async">
+      <div class="comic-strip"><img src="/assets/idiom-comics/${escapeHtml(comic)}.webp" alt="${escapeHtml(comicAlt)}" width="960" height="320" decoding="async"></div>
+      <div class="comic-panels" role="group" aria-label="Comic panels">
+        <button type="button" class="btn btn-ghost" data-action="comic-panel-prev" aria-label="Previous comic panel" disabled>‹</button>
+        <span role="status">Panel 1 of 3</span>
+        <button type="button" class="btn btn-ghost" data-action="comic-panel-next" aria-label="Next comic panel">›</button>
+      </div>
       <figcaption lang="zh">${escapeHtml(caption)}</figcaption>
     </figure>
     ${button("Play animation", "idiom-study-play", "ghost", 'aria-haspopup="dialog"')}
     <div class="idiom-study-nav">
-      ${button("Previous", "idiom-study-previous", "ghost", index === 0 ? "disabled" : "")}
-      ${button("Next idiom", "idiom-study-next", "ghost", index === room.idiomStudy.length - 1 ? "disabled" : "")}
+      ${button("Previous idiom", "idiom-study-previous", "ghost", index === 0 ? "disabled" : "")}
+      ${button("Next idiom", "idiom-study-next", "ghost", index === entries.length - 1 ? "disabled" : "")}
     </div>`;
 }
 
-function playIdiomAnimation(index) {
-  const { chinese, comic, caption, comicAlt } = room.idiomStudy[index];
+function changeComicPanel(controls, delta) {
+  const strip = controls.previousElementSibling;
+  const focused = document.activeElement;
+  const index = Number(strip.dataset.panel ?? 0) + delta;
+  strip.dataset.panel = index;
+  strip.style.setProperty("--panel-offset", `${-index * 100 / 3}%`);
+  controls.children[0].disabled = index === 0;
+  controls.children[1].textContent = `Panel ${index + 1} of 3`;
+  controls.children[2].disabled = index === 2;
+  if (controls.contains(focused) && focused.disabled) controls.children[index === 0 ? 2 : 0].focus();
+}
+
+function playIdiomAnimation(book) {
+  const { chinese, comic, caption, comicAlt } = idiomEntries(book)[Number(book.dataset.index)];
   idiomAnimation.querySelector("h2").textContent = chinese;
   idiomAnimation.querySelector("figcaption").textContent = caption;
   const image = new Image(320, 320);
@@ -378,79 +478,93 @@ idiomAnimation.addEventListener("close", () => {
 const gameModes = { nouns: "Nouns", idioms: '<span lang="zh">成语</span> Idioms' };
 
 function modePanel() {
-  return `<section class="card-panel setup-grid">
-    <h2 id="game-mode-heading">Choose what to practise</h2>
+  return `<section class="card-panel setup-grid setup-panel">
+    <h2 id="game-mode-heading">Choose a game</h2>
     <div class="mode-options" role="group" aria-labelledby="game-mode-heading">
       ${Object.entries(gameModes).map(([id, name]) => button(name, "select-mode", "ghost",
         `data-mode="${id}" aria-pressed="${room.mode === id}" data-network`)).join("")}
     </div>
-    ${room.mode ? settingsPanel() : ""}
+    ${room.mode ? `<div class="start-game-row">
+      ${button(room.mode === "idioms" ? "Start quiz" : "Start game", "start", "primary", "data-network")}
+      <p id="start-hint" class="answer-hint"></p>
+    </div>${settingsPanel()}` : ""}
   </section>`;
 }
 
 function settingsPanel() {
   if (room.mode === "idioms") {
-    return `<div class="setup-grid">
-      <h3 lang="zh">情境选成语</h3>
-      <p>Pick the idiom that fits each situation. Review the explanation before moving on.</p>
-      ${renderIdiomStudy()}
-      <p id="start-hint" class="answer-hint"></p>
-      ${button("Start game", "start", "primary", "data-network")}
-    </div>`;
+    return renderIdiomStudy();
   }
   if (listsFailed) return `<div class="setup-grid"><p>Couldn’t load the word lists.</p>${button("Try again", "retry-lists")}</div>`;
   if (!lists.length) return "<p>Loading word lists…</p>";
 
-  const timers = [
-    ["studySeconds", "Study time per page", 10, 90, 5],
-    ["answerSeconds", "Picture answer time", 3, 15, 1],
-  ];
+  const timers = [["answerSeconds", "Picture answer time", 3, 15, 1]];
+  if (room.players.length > 1) timers.unshift(["studySeconds", "Study time per page", 10, 90, 5]);
   if (room.eligibleRounds.includes("taboo")) timers.push(["describeSeconds", "Taboo speaking time", 10, 45, 5]);
 
-  return `<div class="setup-grid">
-    <fieldset class="word-lists"><legend class="field-label">Word lists</legend>
+  return `<div class="setup-options">
+    <details data-lobby-details="word-lists">
+      <summary>Word lists <span id="selected-list-count">${settings.listIds.length} selected</span></summary>
+      <fieldset class="word-lists" aria-label="Select word lists">
       <div class="list-options">${lists.map(({ id, count, label }) => `
         <label class="list-option">
           <input type="checkbox" value="${id}" ${settings.listIds.includes(id) ? "checked" : ""}>
           <span class="list-icon" aria-hidden="true">${listIcons[id] ?? "📖"}</span>
           <span>${escapeHtml(label)}<br><small>${count} words</small></span>
         </label>`).join("")}</div>
-    </fieldset>
-    <div class="timers-grid">${timers.map(([id, label, min, max, step]) => `
+      </fieldset>
+    </details>
+    <details data-lobby-details="timers">
+      <summary>Timer settings</summary>
+      <div class="timers-grid">${timers.map(([id, label, min, max, step]) => `
       <div class="timer-field">
         <label for="${id}">${label}</label>
         <output class="value" for="${id}">${settings[id]}s</output>
         <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${settings[id]}">
       </div>`).join("")}
-    </div>
-    <p id="start-hint" class="answer-hint"></p>
-    ${button("Start game", "start", "primary", "data-network")}
+      </div>
+    </details>
   </div>`;
+}
+
+function audioPanel() {
+  const needsReading = room.players.some((player) => player.online && player.audio === "unavailable");
+  return `<section class="card-panel audio-check">
+    <h2>Mandarin audio</h2>
+    ${button("Test Mandarin audio", "test-audio", "ghost")}
+    <p id="audio-test-status" role="status"></p>
+    ${needsReading ? '<p class="reading-notice">This room will play Read &amp; Tap if it’s drawn.</p>' : ""}
+    ${isHost() ? `<label class="reading-option"><input type="checkbox" id="reading-clues" ${settings.readingClues ? "checked" : ""}> Use reading clues for everyone</label>` : ""}
+    <p class="voice-tip">For spoken rounds, talk in person or use a separate voice call.</p>
+  </section>`;
 }
 
 function renderLobby() {
   const idiomLobby = room.mode === "idioms";
   return `${heading()}
-    <div class="lobby-grid ${isHost() ? "host-lobby" : ""}">
-      ${isHost() ? `<section class="card-panel invite-panel">
-        <h2>Invite players</h2>
-        <div class="room-code" aria-label="Room code ${room.code.split("").join(" ")}">${room.code}</div>
-        <img class="invite-qr" src="/api/rooms/${room.code}/qr" alt="Scan to join room ${room.code}" width="160" height="160">
-        <p>Scan the QR code or enter the code on the game’s home page.</p>
-        ${button("Copy invite link", "copy", "ghost")}
-        <input class="invite-link" aria-label="Invite link" value="${escapeHtml(inviteUrl())}" readonly hidden>
-      </section>` : ""}
-      <section class="card-panel roster-panel">
-        <h2>Room ${room.code}</h2>
-        ${room.mode && !isHost() ? `<p><strong>${gameModes[room.mode]}</strong></p>` : ""}
-        <p class="field-label">Players (${room.players.length}/8)</p>
-        ${playerList()}
-        ${isHost() ? "" : room.mode ? "<p>Waiting for the host to start.</p>" : "<p>Waiting for the host to choose what to practise.</p>"}
-        ${idiomLobby && !isHost() ? renderIdiomStudy() : ""}
+    <div class="lobby-grid">
+      <section class="card-panel room-panel">
+        <header class="room-heading">
+          <h2>Room <span class="room-code" aria-label="${room.code.split("").join(" ")}">${room.code}</span></h2>
+          ${isHost() ? button("Invite", "invite", "ghost", 'aria-controls="invite-panel" aria-expanded="false"') : ""}
+        </header>
+        <details data-lobby-details="players" ${isHost() && room.players.some((player) => !player.online) ? "open" : ""}>
+          <summary>${room.players.length} / 8 players</summary>
+          ${playerList()}
+        </details>
+        ${isHost() ? `<div class="invite-panel" id="invite-panel" hidden>
+          <img class="invite-qr" alt="Scan to join room ${room.code}" width="160" height="160">
+          <p>Scan the QR code or share the room code.</p>
+          ${button("Copy invite link", "copy", "ghost")}
+          <input class="invite-link" aria-label="Invite link" value="${escapeHtml(inviteUrl())}" readonly hidden>
+        </div>` : ""}
       </section>
-      ${isHost() ? modePanel() : ""}
-    </div>
-    ${room.mode === "nouns" ? '<p class="voice-note">Speak aloud during the game. If you’re playing remotely, join a voice call together.</p>' : ""}`;
+      ${isHost() ? modePanel() : `<section class="card-panel setup-panel">
+        ${room.mode ? `<h2>${gameModes[room.mode]}</h2><p>Waiting for the host to start.</p>` : "<p>Waiting for the host to choose what to practise.</p>"}
+        ${idiomLobby ? renderIdiomStudy() : ""}
+      </section>`}
+      ${room.mode === "nouns" ? audioPanel() : ""}
+    </div>`;
 }
 
 function timer() {
@@ -463,14 +577,18 @@ function nounText(noun) {
 }
 
 function renderStudy() {
-  return `<div class="memorize-header"><h2>Study the words</h2>
-    <span class="page-indicator">Page ${room.page} of ${room.pages}</span>${timer()}</div>
+  const solo = room.players.length === 1;
+  return `<header class="memorize-header"><div><h2>Study the words</h2>
+    <p class="page-indicator">Page ${room.page} of ${room.pages}</p></div>${timer()}</header>
     <div class="noun-grid">${room.nouns.map((noun, index) => `
       <article class="noun-card" style="background:var(--${colors[index]})">
         <div class="noun-img"><img src="${escapeHtml(noun.image)}" alt=""></div>
         <div class="noun-text">${nounText(noun)}</div>
       </article>`).join("")}</div>
-    ${isHost() ? button("Skip to round 1", "skip-study", "ghost", "data-network") : ""}`;
+    ${isHost() ? `<div class="round-actions study-actions">
+      ${solo ? button(room.page === room.pages ? "Start round 1" : "Next words", "next-study", "primary", "data-network") : ""}
+      ${!(solo && room.page === room.pages) ? button("Skip study", "skip-study", "ghost", "data-network") : ""}
+    </div>` : ""}`;
 }
 
 function scores() {
@@ -481,7 +599,11 @@ function scores() {
 
 function roundTitle() {
   if (room.mode === "idioms") return '<span lang="zh">情境选成语</span>';
-  return `Round ${room.roundIndex + 1} · ${escapeHtml(roundNames[room.rounds[room.roundIndex]])}`;
+  return `Round ${room.roundIndex + 1} · ${roundName(room.rounds[room.roundIndex])}`;
+}
+
+function roundName(round) {
+  return escapeHtml(round === "listen" && room.readingClues ? "Read & Tap" : roundNames[round]);
 }
 
 function roundHeader(label, details = "", showTimer = true) {
@@ -497,16 +619,18 @@ function wordCard(noun, includeImage = false) {
 }
 
 function renderPicture(active) {
-  const revealed = room.phase === "picture-answer";
+  const review = room.phase === "picture-review";
+  const revealed = room.phase !== "picture";
   const solo = room.players.length === 1;
-  const hint = revealed ? solo ? "Check your answer and mark how you did." : "Time’s up."
+  const hint = review ? room.pictureCorrect ? "Correct!" : "Remember this word for next time."
+    : revealed ? solo ? "Check your answer and mark how you did." : "Time’s up."
     : isMyTurn() ? "Say the Mandarin name out loud." : `Listen to ${active}’s answer.`;
-  return `${roundHeader(isMyTurn() ? "Your turn" : `${active}’s turn`)}
+  return `${roundHeader(review ? "Remember the word" : isMyTurn() ? "Your turn" : `${active}’s turn`, "", !review)}
     <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
-    ${revealed ? wordCard(room.prompt) : `<div class="prompt-card"><img src="${escapeHtml(room.prompt.image)}" alt="Object to guess"></div>`}
-    <p class="answer-hint">${hint} ${isHost() && !solo ? "Mark the spoken answer below." : ""}</p>
+    ${revealed ? wordCard(room.prompt, review) : `<div class="prompt-card"><img src="${escapeHtml(room.prompt.image)}" alt="Object to guess"></div>`}
+    <p class="answer-hint" role="status">${hint}</p>
     ${solo && !revealed ? button("Reveal answer", "reveal-picture", "primary", "data-network") : ""}
-    ${isHost() && (!solo || revealed) ? `<div class="judge-buttons">
+    ${isHost() && !review && (!solo || revealed) ? `<div class="judge-buttons round-actions" role="group" aria-label="Score the spoken answer">
       ${button(solo ? "I got it" : "Correct", "picture-correct", "success", "data-network")}
       ${button(solo ? "I missed it" : "Incorrect", "picture-wrong", "error", "data-network")}
     </div>` : ""}
@@ -515,15 +639,15 @@ function renderPicture(active) {
 
 function renderMemory(active) {
   const current = room.players.find((p) => p.id === room.activeId);
-  const columns = room.cards.length <= 20 ? 5 : 8;
   const complete = room.phase === "memory-complete";
   const hint = room.phase === "memory-miss" ? "Those cards don’t match."
-    : current.online ? "Pair a Chinese word with its picture or English meaning." : `${active} is disconnected.`;
+    : !current.online ? `${active} is disconnected.`
+      : isMyTurn() ? "Flip two cards. Match the Chinese word to its picture or meaning." : `Watch ${active}’s cards for your next turn.`;
   return `${roundHeader(complete ? "All pairs matched" : isMyTurn() ? "Your turn" : `${active}’s turn`,
     `<span class="pairs-badge">${room.matches}/${room.cards.length / 2} pairs</span>`, false)}
+    ${complete ? "" : `<p class="answer-hint" role="status">${hint}</p>`}
+    <div class="online-memory" style="--columns:4"></div>
     ${scores()}
-    <div class="online-memory" style="--columns:${columns}"></div>
-    ${complete ? "" : `<p class="answer-hint">${hint}</p>`}
     ${isHost() && !current.online && room.phase === "memory" ? button("Pass turn", "pass-memory", "ghost", "data-network") : ""}`;
 }
 
@@ -533,15 +657,16 @@ function renderTaboo(active) {
   const speaking = room.phase === "taboo-speak" || room.phase === "taboo-answer";
   const help = {
     "taboo-ready": mine ? "Open your secret word when you’re ready." : `Waiting for ${active} to get ready.`,
-    "taboo-speak": mine ? "Describe this in Mandarin without saying the word itself." : "Guess the Mandarin word out loud.",
-    "taboo-answer": "Time’s up. The host records who guessed it.",
+    "taboo-speak": mine ? "Describe the word in Mandarin without saying it." : `Listen to ${active} and guess the Mandarin word aloud.`,
+    "taboo-answer": isHost() ? "Mark who guessed the word." : "Time’s up. Here’s the word.",
   };
-  return `${roundHeader(mine ? "You’re the speaker" : `${active} is the speaker`)}
+  return `${roundHeader(mine ? "You’re the speaker" : "You’re guessing")}
     <span class="page-indicator">Turn ${room.turn} of ${room.turns}</span>
-    ${room.prompt ? wordCard(room.prompt, room.phase === "taboo-speak") : ""}
+    ${mine && room.prompt ? wordCard(room.prompt, room.phase === "taboo-speak") : ""}
     <p class="answer-hint">${help[room.phase]}</p>
+    ${!mine && room.prompt ? wordCard(room.prompt) : ""}
     ${room.phase === "taboo-ready" && mine ? button("Reveal my word", "reveal-taboo", "primary", "data-network") : ""}
-    ${isHost() && (speaking || !speaker.online) ? `<div class="guess-buttons">
+    ${isHost() && (speaking || !speaker.online) ? `<div class="guess-buttons round-actions" role="group" aria-label="Record who guessed">
       ${speaking ? room.players.filter((p) => p.id !== room.activeId).map((p) =>
         button(`${escapeHtml(p.name)} guessed it`, "award-taboo", "success", `data-player="${p.id}" data-network`)).join("") : ""}
       ${button(speaking ? "No one guessed" : "Pass turn", "pass-taboo", "error", "data-network")}
@@ -563,9 +688,10 @@ function renderListen() {
   const locked = room.choice !== null;
   const progress = revealed
     ? !locked ? "Time’s up. Here’s the word." : room.choice === room.correctIndex ? "Correct!" : "Here’s the correct word."
-    : locked ? "Answer locked in." : "Listen and choose the matching picture.";
+    : locked ? "Answer locked in." : room.readingClues ? "Read the word and choose the matching picture." : "Listen and choose the matching picture.";
   return `${roundHeader(`Word ${room.turn} of ${room.turns}`)}
-    ${button("🔊 Replay word", "replay-word", "ghost")}
+    ${room.readingClues ? !revealed ? `<p class="reading-clue" lang="zh">${escapeHtml(room.readingClue)}</p>` : ""
+      : button("🔊 Replay word", "replay-word", "ghost")}
     <p class="audio-notice answer-hint" role="status" ${audioNotice ? "" : "hidden"}>${escapeHtml(audioNotice)}</p>
     <div class="listen-choices" aria-label="Picture choices">${room.choices.map((source, index) => {
       const selected = room.choice === index;
@@ -621,7 +747,7 @@ function renderCountdown() {
     ${room.rounds.length > 1 && room.roundIndex === 0 ? `<ol class="round-lineup" aria-label="Rounds in this game">${room.rounds.map((round, index) => `
       <li class="round-card ${index === room.roundIndex ? "is-current" : ""}" ${index === room.roundIndex ? 'aria-current="step"' : ""}>
         <div class="round-card-inner">
-          <div class="round-card-front"><span>${index + 1}</span><strong>${escapeHtml(roundNames[round])}</strong></div>
+          <div class="round-card-front"><span>${index + 1}</span><strong>${roundName(round)}</strong></div>
           <div class="round-card-back" aria-hidden="true"></div>
         </div>
       </li>`).join("")}</ol>` : ""}
@@ -654,10 +780,12 @@ function renderTally() {
             <img src="/assets/images/score-counter.webp" alt="" width="240" height="88">
           </div>` : ""}
         </div>
-        <span class="standing-name">${escapeHtml(player.name)}</span>
-        <span class="standing-score" data-score-for="${player.id}">${player.score}<small> ${player.score === 1 ? "point" : "points"}</small></span>
+        <span class="standing-name">${escapeHtml(player.name)}${player.id === room.selfId ? '<small class="standing-you">You</small>' : ""}</span>
+        <span class="standing-score" data-score-for="${player.id}">${player.score}<small> ${room.mode === "nouns" ? "total" : player.score === 1 ? "point" : "points"}</small></span>
+        ${room.mode === "nouns" ? `<small class="standing-round">+${player.roundPoints} this round</small>` : ""}
       </li>`;
     }).join("")}</ol>
+    ${room.idiomReview?.length ? renderIdiomStudy(true) : ""}
     ${isHost() ? final ? button("Return to lobby", "lobby", "primary", "data-network")
       : button(`Continue to round ${round + 1}`, "continue", "primary", "data-network")
       : '<p class="answer-hint">Waiting for the host to continue.</p>'}`;
@@ -669,7 +797,8 @@ function renderGame() {
     case "study": return renderStudy();
     case "countdown": return renderCountdown();
     case "picture":
-    case "picture-answer": return renderPicture(active);
+    case "picture-answer":
+    case "picture-review": return renderPicture(active);
     case "memory":
     case "memory-miss":
     case "memory-complete": return renderMemory(active);
@@ -840,12 +969,15 @@ function showScoreGains(previous) {
 }
 
 function render(previous) {
-  if (idiomAnimation.open && (room?.phase !== "lobby" || room.mode !== "idioms")) idiomAnimation.close();
+  if (idiomAnimation.open && (!["lobby", "results"].includes(room?.phase) || room.mode !== "idioms" ||
+    (previous && previous.phase !== room.phase))) idiomAnimation.close();
   document.body.classList.toggle("bg-vivid", !room);
   const memory = Boolean(room?.cards);
   const board = app.querySelector(".online-memory");
   const countdown = app.querySelector(".round-countdown");
   const study = app.querySelector(".idiom-study");
+  const openDetails = [...app.querySelectorAll("details[data-lobby-details][open]")].map((detail) => detail.dataset.lobbyDetails);
+  const inviteOpen = app.querySelector('[data-action="invite"]')?.getAttribute("aria-expanded") === "true";
   const focused = document.activeElement;
   const modeFocus = focused?.dataset.mode;
   const keepCountdown = countdown && room?.phase === "countdown" && previous?.deadline === room.deadline;
@@ -866,11 +998,20 @@ function render(previous) {
   if (memory && board) page.content.querySelector(".online-memory").replaceWith(board);
   if (keepCountdown) page.content.querySelector(".round-countdown").replaceWith(countdown);
   const nextStudy = page.content.querySelector(".idiom-study");
-  if (study && nextStudy) nextStudy.replaceWith(study);
+  const keepStudy = study && nextStudy && study.dataset.collection === nextStudy.dataset.collection;
+  if (keepStudy) nextStudy.replaceWith(study);
+  for (const key of openDetails) {
+    const details = page.content.querySelector(`[data-lobby-details="${key}"]`);
+    if (details) details.open = true;
+  }
   app.replaceChildren(page.content);
+  if (inviteOpen && app.querySelector("#invite-panel")) showInvite(true);
   updateStatus();
+  updateAudioTest();
+  if (previous && (previous.phase !== room?.phase && ["lobby", "study", "countdown", "results", "round-tally"].includes(room?.phase) ||
+    room?.phase === "study" && room.page !== previous.page)) window.scrollTo(0, 0);
   if (modeFocus) app.querySelector(`[data-mode="${modeFocus}"]`)?.focus({ preventScroll: true });
-  if (study?.contains(focused) && nextStudy) focused.focus({ preventScroll: true });
+  if (keepStudy && study.contains(focused)) focused.focus({ preventScroll: true });
   if (memory) syncMemoryBoard(app.querySelector(".online-memory"), board ? previous : null);
   if (!keepCountdown && room?.phase === "countdown") animateRoundReveal(app.querySelector(".round-countdown"));
   if (room?.phase !== previous?.phase && ["round-tally", "results"].includes(room?.phase)) animateStandings();
@@ -917,10 +1058,19 @@ function updateStart() {
   start.disabled = !socket.connected || pending || !allOnline || !enoughWords;
   app.querySelector("#start-hint").textContent = !allOnline ? "Wait for disconnected players to return or remove them."
     : idiomLobby ? `${room.idiomStudy.length} scenarios. ${size === 1 ? "Take your time." : "Answer within 25 seconds."}`
+      : !lists.length ? "Word lists are unavailable."
       : !enoughWords ? "Choose enough words for everyone to take a turn."
-      : size === 1 ? "Ready to play solo. You can also invite a friend."
-        : !room.eligibleRounds.includes("taboo") ? "Taboo joins the draw with three or more players."
-          : "Three games will be drawn at random.";
+        : size === 1 ? "Study at your own pace, then play three rounds."
+          : "Study together, then play three rounds.";
+}
+
+function showInvite(open) {
+  const control = app.querySelector('[data-action="invite"]');
+  const panel = app.querySelector("#invite-panel");
+  control.setAttribute("aria-expanded", String(open));
+  panel.hidden = !open;
+  const qr = panel.querySelector(".invite-qr");
+  if (open && !qr.hasAttribute("src")) qr.src = `/api/rooms/${room.code}/qr`;
 }
 
 function updateTimer() {
@@ -966,8 +1116,10 @@ app.addEventListener("input", (event) => {
   }
   if (control.matches('.list-option input[type="checkbox"]')) {
     settings.listIds = [...app.querySelectorAll(".list-option input:checked")].map((input) => input.value);
+    app.querySelector("#selected-list-count").textContent = `${settings.listIds.length} selected`;
     updateStart();
   }
+  if (control.id === "reading-clues") settings.readingClues = control.checked;
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1000,6 +1152,8 @@ app.addEventListener("click", async (event) => {
       if (!pending) resetRoom();
       break;
     case "retry-lists": loadLists(); break;
+    case "invite": showInvite(control.getAttribute("aria-expanded") !== "true"); break;
+    case "test-audio": testMandarinAudio(); break;
     case "copy": {
       const url = inviteUrl();
       try {
@@ -1017,7 +1171,9 @@ app.addEventListener("click", async (event) => {
       request("leave-room", {}, (response) => { if (response?.ok) resetRoom(); });
       break;
     case "select-mode": action(type, { mode: control.dataset.mode }); break;
-    case "idiom-study-play": playIdiomAnimation(Number(control.closest(".idiom-study").dataset.index)); break;
+    case "idiom-study-play": playIdiomAnimation(control.closest(".idiom-study")); break;
+    case "comic-panel-prev":
+    case "comic-panel-next": changeComicPanel(control.closest(".comic-panels"), type === "comic-panel-next" ? 1 : -1); break;
     case "idiom-study-previous":
     case "idiom-study-next": {
       const book = control.closest(".idiom-study");

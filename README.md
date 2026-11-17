@@ -3,24 +3,27 @@
 One to eight players study everyday Mandarin nouns and play three shuffled rounds.
 Guess the Picture, Memory Match, and Listen & Tap support solo and group play.
 Taboo can be drawn when at least three players start the session.
-The host creates a room and shares its QR code, invite link, or six-character code.
+The host creates a room and uses **Invite** to share its QR code, invite link, or six-character code.
 The host chooses Nouns or 成语 in the room lobby and can switch between games after returning to the lobby.
 The host also plays, starts rounds, and records the spoken answers.
 In solo Guess the Picture, reveal the word and mark your own spoken answer.
+Solo players can work through the study pages at their own pace.
 Players speak aloud in person or use a separate voice call.
 Listen & Tap uses each browser's text-to-speech to read the Mandarin word.
-Enable a Mandarin voice on your device if the game reports that one is missing.
+Use **Test Mandarin audio** in the lobby to try the device's Mandarin voice.
+If a player cannot play the sample, or the host selects reading clues, the room plays Read & Tap whenever Listen & Tap is drawn.
 In solo play, submitting an answer immediately starts the next question and leaves the previous word visible for review.
 
 ## 情境选成语
 
 Choose **成语 Idioms** in the room lobby to play the quiz with one to eight players.
-Everyone in the room can open **Learn the 10 idioms** to browse the illustrated stories at their own pace.
+Everyone in the room can open **Learn idioms** to browse the illustrated stories at their own pace.
 Select **Play animation** to watch a comic panel by panel, then close the animation to keep studying.
 When the host starts the quiz, choose the best idiom for each bilingual scenario.
 Solo play is untimed.
 In group play, answers stay locked until everyone answers or the 25-second timer runs out.
 Every answer reveal shows the correct idiom, pinyin, meaning, and why it fits the scenario.
+At the end of a quiz, each player can review their own missed idioms.
 
 ## Run locally
 

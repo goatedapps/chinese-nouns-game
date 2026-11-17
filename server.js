@@ -195,6 +195,17 @@ io.on("connection", (socket) => {
     reply({ ok: true });
   });
 
+  handle("audio-status", ({ status }, reply) => {
+    const { room, player } = membership(socket);
+    requireGame(room.phase === "lobby" && room.mode === "nouns", "Audio checks are available in the Nouns lobby.");
+    requireGame(["untested", "ready", "unavailable"].includes(status), "Invalid audio status.");
+    if (player.audio !== status) {
+      player.audio = status;
+      updatePlayers(room);
+    }
+    reply({ ok: true });
+  });
+
   handle("leave-room", (_data, reply) => {
     const { room, player } = membership(socket);
     reply({ ok: true });
