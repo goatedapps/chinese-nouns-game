@@ -7,4 +7,4 @@
 - Set each round's minimum player count on the server so solo and two-player rooms can start.
 - Deploy as a single Render web service while rooms live in process memory.
 - Save new noun images as compact WebP files using the English noun's filename slug in `assets/images`.
-- Add a Mandarin MP3 in `audio` with the same filename slug for every new noun so it can appear in Listen & Tap.
+- Use browser speech synthesis for Listen & Tap and keep the written solution out of the question screen.

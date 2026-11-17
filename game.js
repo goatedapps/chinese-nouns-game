@@ -355,6 +355,7 @@ function viewFor(room, player) {
   if (phase.startsWith("listen")) {
     const { id, noun, choices, answers } = room.listening;
     view.questionId = id;
+    view.spokenWord = noun.chinese;
     view.turn = room.turn + 1;
     view.turns = room.listenPool.length;
     view.choices = choices.map(({ image }) => image);

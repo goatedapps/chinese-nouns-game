@@ -1,9 +1,6 @@
 const assert = require("node:assert/strict");
-const { readFileSync, statSync } = require("node:fs");
-const path = require("node:path");
 const { test } = require("node:test");
 const { DEFAULT_SETTINGS, GameError, play, elapse, viewFor } = require("../game");
-const { parseNouns } = require("../nouns");
 
 const nouns = Array.from({ length: 10 }, (_, order) => ({
   chinese: "词" + order,
@@ -78,6 +75,8 @@ test("Listen & Tap locks choices privately and scores on reveal", () => {
   }, lists);
 
   assert.equal(viewFor(room, guest).choices.length, 4);
+  assert.equal(viewFor(room, guest).spokenWord, room.listening.noun.chinese);
+  assert.equal(viewFor(room, host).spokenWord, viewFor(room, guest).spokenWord);
   assert.equal(viewFor(room, guest).prompt, undefined);
   assert.equal(viewFor(room, guest).correctIndex, undefined);
   assert.throws(() => choose(host, correct, "stale"), GameError);
@@ -169,15 +168,4 @@ test("Guess the Picture can finish a shuffled session", () => {
   for (const _ of room.pool) play(room, host, { type: "judge-picture", correct: true }, lists);
   assert.equal(room.phase, "results");
   assert.deepEqual(room.players.map((player) => player.score), [3, 3, 3]);
-});
-
-test("every vocabulary entry has a bundled audio clip", () => {
-  const root = path.join(__dirname, "..");
-  const catalog = parseNouns(readFileSync(path.join(root, "nouns.txt"), "utf8"));
-  for (const { nouns } of catalog) {
-    for (const { english, image } of nouns) {
-      const clip = path.join(root, "audio", path.parse(image).name + ".mp3");
-      assert(statSync(clip).size > 1000, `Audio clip is too small for ${english}`);
-    }
-  }
 });

@@ -33,8 +33,8 @@ const soundFiles = {
 const motion = window.gsap;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const effectAudio = new Audio();
-const wordAudio = new Audio();
-wordAudio.preload = "none";
+const speech = window.speechSynthesis;
+const missingVoiceNotice = "No Mandarin voice is available. Enable Mandarin text-to-speech on your device, then tap Replay word.";
 
 let session = loadSession();
 let mode = incomingCode ? "join" : "home";
@@ -47,10 +47,12 @@ let message = "";
 let localDeadline = 0;
 let audioQuestion;
 let audioNotice = "";
+let activeWord;
 let roundIntro;
 let countdownMotion;
 let countdownBeat;
 let scoreMotion;
+let standingsMotion;
 
 function loadSession() {
   try {
@@ -97,44 +99,84 @@ function isMyTurn() {
 }
 
 function playSound(name) {
-  if (!soundFiles[name] || (!wordAudio.paused && !wordAudio.ended)) return;
+  if (!soundFiles[name] || activeWord) return;
   effectAudio.src = `assets/sounds/${soundFiles[name]}.mp3`;
   effectAudio.play().catch(() => {});
 }
 
+function mandarinVoice() {
+  const voices = speech.getVoices().flatMap((voice) => {
+    const [language, ...subtags] = voice.lang.toLowerCase().split("-");
+    if (language !== "cmn" && (language !== "zh" || subtags.some((tag) => ["yue", "hk", "mo"].includes(tag)))) return [];
+    const priority = subtags.includes("sg") ? 0 : subtags.includes("cn") || subtags.includes("hans") ? 1 : 2;
+    return [{ voice, priority }];
+  });
+  voices.sort((a, b) => a.priority - b.priority || Number(b.voice.localService) - Number(a.voice.localService));
+  return voices[0]?.voice;
+}
+
+function showAudioNotice(notice) {
+  audioNotice = notice;
+  const status = app.querySelector(".audio-notice");
+  if (status) {
+    status.textContent = notice;
+    status.hidden = !notice;
+  }
+}
+
+function stopWord() {
+  if (!activeWord) return;
+  activeWord = null;
+  speech.cancel();
+}
+
 function replayWord() {
-  if (!audioQuestion) return;
-  const question = audioQuestion;
+  if (!audioQuestion || !room?.spokenWord) return;
+  if (!speech || !window.SpeechSynthesisUtterance) {
+    showAudioNotice("This browser cannot speak the clue. Open the game in a browser with Mandarin text-to-speech.");
+    return;
+  }
+  stopWord();
+  const voice = mandarinVoice();
+  if (!voice) {
+    showAudioNotice(missingVoiceNotice);
+    return;
+  }
+
   effectAudio.pause();
-  wordAudio.currentTime = 0;
-  const showNotice = (notice) => {
-    if (question !== audioQuestion) return;
-    audioNotice = notice;
-    const status = app.querySelector(".audio-notice");
-    if (status) {
-      status.textContent = notice;
-      status.hidden = !notice;
+  const word = new SpeechSynthesisUtterance(room.spokenWord);
+  word.voice = voice;
+  word.lang = voice.lang;
+  word.rate = 0.9;
+  activeWord = word;
+  showAudioNotice("");
+  word.onend = () => {
+    if (activeWord === word) activeWord = null;
+  };
+  word.onerror = ({ error }) => {
+    if (activeWord !== word) return;
+    activeWord = null;
+    if (error === "language-unavailable" || error === "voice-unavailable") {
+      showAudioNotice(missingVoiceNotice);
+    } else {
+      showAudioNotice(error === "not-allowed" ? "Tap Replay word to hear the clue." : "The clue couldn’t play. Tap Replay word to try again.");
     }
   };
-  wordAudio.play().then(() => showNotice("")).catch((error) => {
-    if (error.name === "AbortError") return;
-    showNotice(error.name === "NotAllowedError" ? "Tap Replay word to hear the audio." : "Audio couldn’t play. Try Replay word again.");
-  });
+  speech.speak(word);
 }
 
 function updateWordAudio() {
   if (room?.questionId === audioQuestion) return;
   audioQuestion = room?.questionId;
   audioNotice = "";
-  wordAudio.pause();
-  if (!audioQuestion) {
-    wordAudio.removeAttribute("src");
-    wordAudio.load();
-    return;
-  }
-  wordAudio.src = `/api/rooms/${room.code}/listen/${audioQuestion}`;
-  if (room.phase === "listen-question") replayWord();
+  stopWord();
+  if (room?.phase === "listen-question") replayWord();
 }
+
+speech?.addEventListener("voiceschanged", () => {
+  if (room?.phase === "listen-question" && audioNotice === missingVoiceNotice && mandarinVoice()) replayWord();
+});
+speech?.getVoices();
 
 function request(event, data, done) {
   if (pending || !socket.connected) return;
@@ -486,16 +528,25 @@ function renderTally() {
   const points = `${best} ${best === 1 ? "point" : "points"}`;
   const summary = ranked.length === 1 ? `You ${final ? "scored" : "have"} ${points}.`
     : `${leaders.join(" and ")} ${result} with ${points}.`;
+  let rank = 1;
   return `<h2 class="round-badge">${final ? "Final results" : `Round ${round} complete`}</h2>
-    <div class="trophy" aria-hidden="true">${final ? "🏆" : "📊"}</div>
+    ${final ? '<div class="trophy" aria-hidden="true">🏆</div>' : ""}
     <p class="winner-line">${escapeHtml(summary)}</p>
     ${renderListenRecap()}
-    <ol class="leaderboard">${ranked.map((p) => `
-      <li class="leader-row ${p.score === best ? "leader-row-top" : ""}">
-        <span class="leader-name">${escapeHtml(p.name)}</span>
-        <div class="leader-bar-track" aria-hidden="true"><div class="leader-bar-fill" style="width:${best ? p.score / best * 100 : 0}%"></div></div>
-        <span class="leader-score" data-score-for="${p.id}">${p.score}</span>
-      </li>`).join("")}</ol>
+    <ol class="standings" aria-label="Cumulative standings" style="--standings-columns:${Math.min(ranked.length, 4)}">${ranked.map((player, index) => {
+      if (index && player.score !== ranked[index - 1].score) rank = index + 1;
+      const height = player.score ? Math.max(2, Math.round(player.score / best * 60)) : 0;
+      return `<li class="standing-card${rank === 1 && best > 0 ? " standing-leader" : ""}">
+        <span class="standing-rank">Rank ${rank}</span>
+        <div class="standing-stage" aria-hidden="true">
+          ${height ? `<div class="standing-stack" style="--stack-height:${height}px">
+            <img src="/assets/images/score-counter.webp" alt="" width="240" height="88">
+          </div>` : ""}
+        </div>
+        <span class="standing-name">${escapeHtml(player.name)}</span>
+        <span class="standing-score" data-score-for="${player.id}">${player.score}<small> ${player.score === 1 ? "point" : "points"}</small></span>
+      </li>`;
+    }).join("")}</ol>
     ${isHost() ? final ? button("Return to lobby", "lobby", "primary", "data-network")
       : button(`Continue to round ${round + 1}`, "continue", "primary", "data-network")
       : '<p class="answer-hint">Waiting for the host to continue.</p>'}`;
@@ -623,6 +674,19 @@ function animateRoundReveal(scene) {
   });
 }
 
+function animateStandings() {
+  if (!animationsEnabled()) return;
+  standingsMotion = motion.context(() => {
+    const cards = app.querySelectorAll(".standing-card");
+    const stacks = app.querySelectorAll(".standing-stack");
+    const timeline = motion.timeline();
+    timeline.from(cards, { y: 12, opacity: 0.5, duration: 0.3, stagger: 0.055, ease: "power2.out" });
+    if (stacks.length) {
+      timeline.from(stacks, { scaleY: 0, duration: 0.45, stagger: 0.055, ease: "back.out(1.1)" }, 0.1);
+    }
+  });
+}
+
 function showScoreGains(previous) {
   const announcement = document.getElementById("score-announcement");
   if (previous?.code !== room?.code || !previous) {
@@ -672,6 +736,8 @@ function render(previous) {
   if (!keepCountdown) stopCountdownMotion();
   scoreMotion?.revert();
   scoreMotion = null;
+  standingsMotion?.revert();
+  standingsMotion = null;
 
   const page = document.createElement("template");
   page.innerHTML = `<main class="screen ${memory ? "screen-wide" : ""} ${!room ? "entry-screen" : ""}">
@@ -685,6 +751,7 @@ function render(previous) {
   app.replaceChildren(page.content);
   if (memory) syncMemoryBoard(app.querySelector(".online-memory"), board ? previous : null);
   if (!keepCountdown && room?.phase === "countdown") animateRoundReveal(app.querySelector(".round-countdown"));
+  if (room?.phase !== previous?.phase && ["round-tally", "results"].includes(room?.phase)) animateStandings();
   showScoreGains(previous);
   updateStatus();
   updateTimer();
@@ -696,6 +763,8 @@ reducedMotion.addEventListener("change", ({ matches }) => {
   stopMemoryMotion(app.querySelector(".online-memory"));
   scoreMotion?.revert();
   scoreMotion = null;
+  standingsMotion?.revert();
+  standingsMotion = null;
 });
 
 function updateStatus() {
