@@ -11,6 +11,16 @@
 </head>
 <body>
 <div id="app"></div>
+<dialog id="idiom-animation" aria-labelledby="idiom-animation-title">
+  <div class="idiom-animation-header">
+    <h2 id="idiom-animation-title" lang="zh"></h2>
+    <form method="dialog"><button class="btn btn-ghost" autofocus>Close</button></form>
+  </div>
+  <figure class="idiom-comic">
+    <div class="idiom-animation-frame"></div>
+    <figcaption lang="zh"></figcaption>
+  </figure>
+</dialog>
 <p id="score-announcement" class="sr-only" role="status"></p>
 <script src="/socket.io/socket.io.js" defer></script>
 <script src="/gsap.min.js" defer></script>

@@ -1,4 +1,6 @@
 const app = document.getElementById("app");
+const idiomAnimation = document.getElementById("idiom-animation");
+const idiomAnimationFrame = idiomAnimation.querySelector(".idiom-animation-frame");
 const socket = io({ autoConnect: false });
 const sessionKey = "chinese-nouns-room";
 const incomingCode = new URLSearchParams(location.search).get("room")?.toUpperCase() ?? "";
@@ -344,11 +346,34 @@ function showIdiomComic(book, index) {
       <img src="/assets/idiom-comics/${escapeHtml(comic)}.webp" alt="${escapeHtml(comicAlt)}" width="960" height="320" decoding="async">
       <figcaption lang="zh">${escapeHtml(caption)}</figcaption>
     </figure>
+    ${button("Play animation", "idiom-study-play", "ghost", 'aria-haspopup="dialog"')}
     <div class="idiom-study-nav">
       ${button("Previous", "idiom-study-previous", "ghost", index === 0 ? "disabled" : "")}
       ${button("Next idiom", "idiom-study-next", "ghost", index === room.idiomStudy.length - 1 ? "disabled" : "")}
     </div>`;
 }
+
+function playIdiomAnimation(index) {
+  const { chinese, comic, caption, comicAlt } = room.idiomStudy[index];
+  idiomAnimation.querySelector("h2").textContent = chinese;
+  idiomAnimation.querySelector("figcaption").textContent = caption;
+  const image = new Image(320, 320);
+  image.alt = comicAlt;
+  image.addEventListener("error", () => {
+    if (!image.isConnected) return;
+    const notice = document.createElement("p");
+    notice.setAttribute("role", "alert");
+    notice.textContent = "The animation couldn’t load. Close it to return to the comic.";
+    image.replaceWith(notice);
+  }, { once: true });
+  idiomAnimation.showModal();
+  idiomAnimationFrame.replaceChildren(image);
+  image.src = `/assets/idiom-animations/${comic}.webp`;
+}
+
+idiomAnimation.addEventListener("close", () => {
+  if (!idiomAnimation.open) idiomAnimationFrame.replaceChildren();
+});
 
 const gameModes = { nouns: "Nouns", idioms: '<span lang="zh">成语</span> Idioms' };
 
@@ -815,6 +840,7 @@ function showScoreGains(previous) {
 }
 
 function render(previous) {
+  if (idiomAnimation.open && (room?.phase !== "lobby" || room.mode !== "idioms")) idiomAnimation.close();
   document.body.classList.toggle("bg-vivid", !room);
   const memory = Boolean(room?.cards);
   const board = app.querySelector(".online-memory");
@@ -991,6 +1017,7 @@ app.addEventListener("click", async (event) => {
       request("leave-room", {}, (response) => { if (response?.ok) resetRoom(); });
       break;
     case "select-mode": action(type, { mode: control.dataset.mode }); break;
+    case "idiom-study-play": playIdiomAnimation(Number(control.closest(".idiom-study").dataset.index)); break;
     case "idiom-study-previous":
     case "idiom-study-next": {
       const book = control.closest(".idiom-study");

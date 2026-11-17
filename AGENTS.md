@@ -10,3 +10,4 @@
 - Use browser speech synthesis for Listen & Tap and keep the written solution out of the question screen.
 - Keep lobby game selection server-controlled and host-only.
 - Add idiom practice to `idioms.js` with simplified Chinese, pinyin, an original bilingual scenario, and a compact WebP comic in `assets/idiom-comics`.
+- Save the matching animation in `assets/idiom-animations` and load it only when a player selects **Play animation**.

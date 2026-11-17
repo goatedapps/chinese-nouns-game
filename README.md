@@ -16,6 +16,7 @@ In solo play, submitting an answer immediately starts the next question and leav
 
 Choose **成语 Idioms** in the room lobby to play the quiz with one to eight players.
 Everyone in the room can open **Learn the 10 idioms** to browse the illustrated stories at their own pace.
+Select **Play animation** to watch a comic panel by panel, then close the animation to keep studying.
 When the host starts the quiz, choose the best idiom for each bilingual scenario.
 Solo play is untimed.
 In group play, answers stay locked until everyone answers or the 25-second timer runs out.
